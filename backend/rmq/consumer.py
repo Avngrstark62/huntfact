@@ -12,10 +12,7 @@ async def start_consumer(handler):
     try:
         channel = await rabbitmq.get_channel(settings.prefetch_count)
 
-        queue = await channel.declare_queue(
-            settings.queue_name,
-            durable=True
-        )
+        queue = await channel.get_queue(settings.queue_name)
 
         logger.info("Consumer started")
 

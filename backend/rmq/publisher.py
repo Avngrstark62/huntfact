@@ -7,7 +7,7 @@ from rmq.schemas import TaskMessage
 
 
 async def publish_task(task: TaskMessage):
-    channel = await rabbitmq.get_channel()
+    channel = await rabbitmq.get_channel(settings.prefetch_count)
 
     message = aio_pika.Message(
         body=json.dumps(task.model_dump()).encode(),
