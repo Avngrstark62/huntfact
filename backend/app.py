@@ -1,14 +1,11 @@
+import logging
 from fastapi import FastAPI
-from fastapi.requests import Request
-from fastapi.responses import JSONResponse
 
 from config import settings
-from logger import get_logger
-from routes.health import router as health_router
-from routes.hunt import router as hunt_router
-from exceptions import AppException
+from router import router
+from db.database import db, Base
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class App:
@@ -17,46 +14,22 @@ class App:
             title=settings.app_name,
             debug=settings.debug,
         )
-        self._register_middleware()
-        self._register_exception_handlers()
+        self._register_startup_shutdown()
         self._register_routes()
-        logger.info(f"App initialized: {settings.app_name}")
 
-    def _register_middleware(self):
-        @self.app.middleware("http")
-        async def log_requests(request: Request, call_next):
-            logger.info(f"{request.method} {request.url.path}")
+    def _register_startup_shutdown(self):
+        @self.app.on_event("startup")
+        async def startup_event():
             try:
-                response = await call_next(request)
-                logger.info(f"{request.method} {request.url.path} - {response.status_code}")
-                return response
+                Base.metadata.create_all(bind=db.engine)
+                db.is_healthy = True
+                logger.info("Database initialized successfully")
             except Exception as e:
-                logger.error(f"{request.method} {request.url.path} - Exception: {str(e)}", exc_info=True)
-                raise
-
-    def _register_exception_handlers(self):
-        @self.app.exception_handler(AppException)
-        async def app_exception_handler(request: Request, exc: AppException):
-            return JSONResponse(
-                status_code=exc.status_code,
-                content=exc.detail,
-            )
-
-        @self.app.exception_handler(Exception)
-        async def general_exception_handler(request: Request, exc: Exception):
-            logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "error": "INTERNAL_SERVER_ERROR",
-                    "message": "An unexpected error occurred",
-                    "success": False,
-                },
-            )
+                logger.error(f"Failed to initialize database: {str(e)}", exc_info=True)
+                db.is_healthy = False
 
     def _register_routes(self):
-        self.app.include_router(health_router)
-        self.app.include_router(hunt_router)
+        self.app.include_router(router)
 
     def get_app(self) -> FastAPI:
         return self.app

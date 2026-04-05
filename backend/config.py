@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
+    database_url: str
 
     class Config:
         env_file = ".env"
