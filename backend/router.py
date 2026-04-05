@@ -1,10 +1,14 @@
 from fastapi import APIRouter, status, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
 from logging_config import get_logger
 from schemas import StartHuntRequest, StartHuntResponse, HealthResponse
 from config import settings
-from rmq.connection import rabbitmq
+from db.database import db
+from rmq.publisher import publish_task
+from rmq.schemas import TaskMessage
+from rmq.constants import DOWNLOAD, NOTIFY
 from health import is_system_healthy, check_health_dependency
 
 logger = get_logger("router")
@@ -34,24 +38,45 @@ def get_health() -> HealthResponse:
 
 
 @router.post("/start-hunt", response_model=StartHuntResponse, tags=["hunts"])
-def start_hunt(request: StartHuntRequest, _: None = Depends(check_health_dependency)) -> StartHuntResponse:
+async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.get_db), _: None = Depends(check_health_dependency)) -> StartHuntResponse:
     """
-    Start a new hunt with a video link.
+    Start a new hunt with video and CDN links.
     
     - **video_link**: URL of the video to analyze
+    - **cdn_link**: CDN link for the video
     
     Returns the hunt result and status.
     """
     try:
-        logger.info(f"Starting hunt with video: {request.video_link}")
+        logger.info(f"Starting hunt with video: {request.video_link}, cdn: {request.cdn_link}")
         
-        result = StartHuntResponse(
+        existing_hunt = db.get_hunt_by_video_link(session, str(request.video_link))
+        
+        if existing_hunt:
+            logger.info(f"Hunt already exists for video: {request.video_link}")
+            task = TaskMessage(
+                step=NOTIFY,
+                priority=4,
+                payload={"hunt_id": existing_hunt.id, "result": existing_hunt.result}
+            )
+        else:
+            new_hunt = db.create_hunt(session, str(request.video_link))
+            logger.info(f"Created new hunt with id: {new_hunt.id}")
+            task = TaskMessage(
+                step=DOWNLOAD,
+                priority=1,
+                payload={"hunt_id": new_hunt.id, "cdn_link": str(request.cdn_link)}
+            )
+        
+        await publish_task(task)
+        logger.info(f"Task published: {task.step}")
+        
+        return StartHuntResponse(
             success=True,
             message="Hunt started successfully",
-            result="this fact is true",
+            result="Processing",
         )
-        logger.info("Hunt started successfully")
-        return result
+            
     except Exception as e:
         logger.error(f"Unexpected error in start_hunt: {str(e)}", exc_info=settings.debug)
         return JSONResponse(

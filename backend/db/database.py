@@ -52,6 +52,11 @@ class Database:
 
         return session.query(Hunt).filter(Hunt.id == hunt_id).first()
 
+    def get_hunt_by_video_link(self, session: Session, video_link: str):
+        from db.models.hunt import Hunt
+
+        return session.query(Hunt).filter(Hunt.video_link == video_link).first()
+
 
 # ✅ singleton instance
 db = Database()

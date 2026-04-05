@@ -8,6 +8,7 @@ class HealthResponse(BaseModel):
 
 class StartHuntRequest(BaseModel):
     video_link: HttpUrl = Field(..., description="URL of the video to analyze")
+    cdn_link: HttpUrl = Field(..., description="CDN link for the video")
 
 
 class StartHuntResponse(BaseModel):
