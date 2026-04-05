@@ -1,13 +1,13 @@
-import logging
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, Depends
 from fastapi.responses import JSONResponse
 
+from logging_config import get_logger
 from schemas import StartHuntRequest, StartHuntResponse, HealthResponse
 from config import settings
-from db.database import db
+from rmq.connection import rabbitmq
+from health import is_system_healthy, check_health_dependency
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger("router")
 router = APIRouter()
 
 
@@ -18,12 +18,12 @@ def get_health() -> HealthResponse:
     
     Returns the current server health status and database connectivity.
     """
-    if not db.is_healthy:
+    if not is_system_healthy():
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "status": "unhealthy",
-                "message": "Database connection failed"
+                "message": "Database or RabbitMQ connection failed"
             }
         )
     
@@ -34,7 +34,7 @@ def get_health() -> HealthResponse:
 
 
 @router.post("/start-hunt", response_model=StartHuntResponse, tags=["hunts"])
-def start_hunt(request: StartHuntRequest) -> StartHuntResponse:
+def start_hunt(request: StartHuntRequest, _: None = Depends(check_health_dependency)) -> StartHuntResponse:
     """
     Start a new hunt with a video link.
     
@@ -58,3 +58,4 @@ def start_hunt(request: StartHuntRequest) -> StartHuntResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal Server Error"}
         )
+

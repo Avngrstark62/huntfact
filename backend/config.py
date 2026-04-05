@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     port: int = 8000
     database_url: str
 
+    rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
+    queue_name: str = "task_queue"
+    max_priority: int = 10
+    prefetch_count: int = 1
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
