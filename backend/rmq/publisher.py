@@ -1,7 +1,7 @@
 import json
 import aio_pika
 
-from queue.connection import rabbitmq
+from rmq.connection import rabbitmq
 from config import settings
 from rmq.schemas import TaskMessage
 
