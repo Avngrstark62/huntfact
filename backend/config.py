@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     max_priority: int = 10
     prefetch_count: int = 1
 
+    google_api_key: str
+    openai_api_key: str
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
