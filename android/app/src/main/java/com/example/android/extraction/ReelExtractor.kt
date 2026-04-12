@@ -2,22 +2,50 @@ package com.example.android.extraction
 
 import android.util.Log
 import com.google.gson.JsonParser
+import com.google.gson.stream.JsonReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import java.io.StringReader
 import java.net.URL
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
+import java.util.zip.GZIPInputStream
 
 object ReelExtractor {
     private const val TAG = "ReelExtractor"
     
     private val httpClient = OkHttpClient.Builder()
+        .addInterceptor(GzipDecompressionInterceptor())
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
+
+    private class GzipDecompressionInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val response = chain.proceed(chain.request())
+            
+            val encoding = response.header("Content-Encoding")
+            if (encoding != null && (encoding.contains("gzip") || encoding.contains("deflate"))) {
+                val decompressedBody = response.body?.let { body ->
+                    val inputStream = GZIPInputStream(body.byteStream())
+                    val decompressedString = inputStream.bufferedReader().use { it.readText() }
+                    okhttp3.ResponseBody.create(body.contentType(), decompressedString)
+                } ?: response.body
+                
+                return response.newBuilder()
+                    .body(decompressedBody)
+                    .removeHeader("Content-Encoding")
+                    .build()
+            }
+            
+            return response
+        }
+    }
 
     suspend fun extractCdnUrl(reelUrl: String): String? = withContext(Dispatchers.IO) {
         try {
@@ -76,7 +104,10 @@ object ReelExtractor {
             Thread.sleep(200)
 
             // Step 4: GraphQL query
-            val graphqlHeaders = getBrowserHeaders().toMutableMap().apply {
+            val graphqlHeaders: MutableMap<String, String> = mutableMapOf<String, String>().apply {
+                getBrowserHeaders().forEach { (key, value) ->
+                    put(key, value)
+                }
                 remove("Content-Length")
                 put("authority", "www.instagram.com")
                 put("scheme", "https")
@@ -100,7 +131,7 @@ object ReelExtractor {
                     .url(graphqlUrl)
                     .post(formBody)
                     .apply {
-                        graphqlHeaders.forEach { (key, value) ->
+                        graphqlHeaders.forEach { (key: String, value: String) ->
                             header(key, value)
                         }
                     }
@@ -121,7 +152,9 @@ object ReelExtractor {
             // Step 5: Parse response
             val responseBody = graphqlResponse.body?.string() ?: ""
             val jsonObject = try {
-                JsonParser.parseString(responseBody).asJsonObject
+                val jsonReader = JsonReader(StringReader(responseBody))
+                jsonReader.isLenient = true
+                JsonParser.parseReader(jsonReader).asJsonObject
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse GraphQL response as JSON: ${e.message}")
                 return@withContext null
