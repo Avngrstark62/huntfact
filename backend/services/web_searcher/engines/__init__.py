@@ -57,7 +57,7 @@ import pkgutil
 from collections import defaultdict
 from typing import Any
 
-from services.ddgs_wrapper.base import BaseSearchEngine
+from services.web_searcher.base import BaseSearchEngine
 
 # ENGINES[category][name] = class (only text search engines)
 ENGINES: dict[str, dict[str, type[BaseSearchEngine[Any]]]] = defaultdict(dict)

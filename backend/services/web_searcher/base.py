@@ -9,8 +9,8 @@ from typing import Any, ClassVar, Generic, Literal, TypeVar
 from lxml import html
 from lxml.etree import HTMLParser as LHTMLParser
 
-from services.ddgs_wrapper.http_client import HttpClient
-from services.ddgs_wrapper.results import BooksResult, ImagesResult, NewsResult, TextResult, VideosResult
+from services.web_searcher.http_client import HttpClient
+from services.web_searcher.results import BooksResult, ImagesResult, NewsResult, TextResult, VideosResult
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")

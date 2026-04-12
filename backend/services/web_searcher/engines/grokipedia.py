@@ -4,8 +4,8 @@ import json
 import logging
 from typing import Any
 
-from services.ddgs_wrapper.base import BaseSearchEngine
-from services.ddgs_wrapper.results import TextResult
+from services.web_searcher.base import BaseSearchEngine
+from services.web_searcher.results import TextResult
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ from typing import Any
 
 import primp
 
-from services.ddgs_wrapper.exceptions import DDGSException, TimeoutException
+from services.web_searcher.exceptions import DDGSException, TimeoutException
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ Features:
 
 from typing import Any
 
-from services.ddgs_wrapper.ddgs import DDGS
+from services.web_searcher.ddgs import DDGS
 
 
 def search_web(

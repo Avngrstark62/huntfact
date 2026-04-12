@@ -6,8 +6,8 @@ from time import time
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from services.ddgs_wrapper.base import BaseSearchEngine
-from services.ddgs_wrapper.results import TextResult
+from services.web_searcher.base import BaseSearchEngine
+from services.web_searcher.results import TextResult
 
 
 def unwrap_bing_url(raw_url: str) -> str | None:

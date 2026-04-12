@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from html import unescape
 from urllib.parse import unquote
 
-from services.ddgs_wrapper.exceptions import DDGSException
+from services.web_searcher.exceptions import DDGSException
 
 _REGEX_STRIP_TAGS = re.compile("<.*?>")
 

@@ -1,6 +1,6 @@
 """Example script demonstrating how to use ddgs_wrapper for web searches."""
 
-from services.ddgs_wrapper import search_web
+from services.web_searcher import search_web
 
 
 def main():

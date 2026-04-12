@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Generic, TypeVar
 
-from services.ddgs_wrapper.utils import _normalize_date, _normalize_text, _normalize_url
+from services.web_searcher.utils import _normalize_date, _normalize_text, _normalize_url
 
 T = TypeVar("T")
 

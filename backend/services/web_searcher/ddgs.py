@@ -8,13 +8,13 @@ from random import random, shuffle
 from types import TracebackType
 from typing import Any, ClassVar
 
-from services.ddgs_wrapper.base import BaseSearchEngine
-from services.ddgs_wrapper.engines import ENGINES
-from services.ddgs_wrapper.exceptions import DDGSException, TimeoutException
-from services.ddgs_wrapper.http_client import HttpClient
-from services.ddgs_wrapper.results import ResultsAggregator
-from services.ddgs_wrapper.similarity import SimpleFilterRanker
-from services.ddgs_wrapper.utils import _expand_proxy_tb_alias
+from services.web_searcher.base import BaseSearchEngine
+from services.web_searcher.engines import ENGINES
+from services.web_searcher.exceptions import DDGSException, TimeoutException
+from services.web_searcher.http_client import HttpClient
+from services.web_searcher.results import ResultsAggregator
+from services.web_searcher.similarity import SimpleFilterRanker
+from services.web_searcher.utils import _expand_proxy_tb_alias
 
 logger = logging.getLogger(__name__)
 
