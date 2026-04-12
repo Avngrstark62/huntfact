@@ -1,7 +1,8 @@
-from downloader import extract_audio
-from transcriber import transcribe_audio
+from services.audio_extractor import extract_audio
+from services.transcriber import transcribe_audio
+from services.reel_extractor import get_reel_video_url
+
 import time
-from reel_extractor import get_reel_video_url
 
 start_time = time.time()
 
