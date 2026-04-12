@@ -31,79 +31,35 @@ class ClaimExtractionResult(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
     data: Dict[str, Any] = Field(default_factory=dict)
 
-_translation_agent: Optional[Agent] = None
-_speaker_agent: Optional[Agent] = None
-_claim_agent: Optional[Agent] = None
+_agent: Optional[Agent] = None
 
-def get_translation_agent() -> Agent:
-    global _translation_agent
-    if _translation_agent is None:
-        logger.info("Initializing Translation Agent")
-        _translation_agent = Agent(
-            name="TranslationAgent",
-            model=Gemini(
-                id="gemini-3-flash-preview",
-                api_key=settings.google_api_key
-            ),
-            description="You are a precise translation expert.",
-            instructions=[
-                "Translate the input text to English if it's not already in English.",
-                "Preserve the meaning exactly, do not summarize.",
-                "If the text is already in English, return it unchanged.",
-                "Return ONLY the translated text, nothing else.",
-                "Respond in plain text format."
-            ],
-        )
-    return _translation_agent
-
-def get_speaker_agent() -> Agent:
-    global _speaker_agent
-    if _speaker_agent is None:
-        logger.info("Initializing Speaker Identification Agent")
-        _speaker_agent = Agent(
-            name="SpeakerAgent",
-            model=Gemini(
-                id="gemini-3-flash-preview",
-                api_key=settings.google_api_key
-            ),
-            description="You are an expert at identifying speakers and structuring dialogue.",
-            instructions=[
-                "Analyze the text and identify speakers.",
-                "'creator' = person posting/narrating/reacting",
-                "'other' = any quoted, shown, or referenced person",
-                "If unclear, mark as 'unknown'",
-                "Split text into meaningful segments.",
-                "Return ONLY valid JSON array with objects containing: speaker, text, confidence",
-                "Example format: [{'speaker': 'creator', 'text': 'some text', 'confidence': 0.9}]"
-            ],
-        )
-    return _speaker_agent
-
-def get_claim_agent() -> Agent:
-    global _claim_agent
-    if _claim_agent is None:
+def get_agent() -> Agent:
+    global _agent
+    if _agent is None:
         logger.info("Initializing Claim Extraction Agent")
-        _claim_agent = Agent(
-            name="ClaimAgent",
+        _agent = Agent(
+            name="ClaimExtractorAgent",
             model=Gemini(
                 id="gemini-3-flash-preview",
                 api_key=settings.google_api_key
             ),
-            description="You are an expert at extracting factual claims.",
+            description="You are a precise information extraction system that performs translation, speaker identification, and claim extraction.",
             instructions=[
-                "Extract ONLY claims made by 'creator'.",
-                "A claim must be objectively verifiable (not pure opinion).",
-                "Each claim must be independent (no duplicates, no merging unrelated ideas).",
-                "Include exact supporting span for each claim.",
-                "Ignore: opinions, emotional statements, rhetorical questions.",
-                "Return ONLY valid JSON array with objects containing: claim, type, confidence, source_span",
-                "Example format: [{'claim': 'text', 'type': 'factual', 'confidence': 0.9, 'source_span': 'exact text'}]"
+                "STEP 1 - TRANSLATION: Translate input text to English if not already English. Preserve meaning exactly, do not summarize.",
+                "STEP 2 - SPEAKER IDENTIFICATION: Identify speakers (creator=person posting/narrating/reacting, other=quoted/referenced person, unknown=unclear). Structure into dialogue segments.",
+                "STEP 3 - CLAIM EXTRACTION: Extract ONLY factual claims made by 'creator'. Claims must be objectively verifiable. Include exact source_span. Ignore opinions, emotions, rhetorical questions.",
+                "Return ONLY valid JSON with this structure:",
+                "{",
+                '  "translated_text": "string",',
+                '  "structured_dialogue": [{"speaker": "creator|other|unknown", "text": "string", "confidence": 0-1}],',
+                '  "claims_by_creator": [{"claim": "string", "type": "factual|opinion|unclear", "confidence": 0-1, "source_span": "exact text"}]',
+                "}"
             ],
         )
-    return _claim_agent
+    return _agent
 
 async def extract_claims(transcribed_text: str) -> ClaimExtractionResult:
-    logger.info("Starting three-step claim extraction process")
+    logger.info("Starting claim extraction")
     
     errors: List[ErrorDetail] = []
     status = "success"
@@ -133,129 +89,67 @@ async def extract_claims(transcribed_text: str) -> ClaimExtractionResult:
         )
     
     try:
-        # Step 1: Translation
-        logger.info("Step 1: Translating text")
-        translation_agent = get_translation_agent()
-        translation_response = await translation_agent.arun(
-            f"Translate to English if needed, otherwise return unchanged:\n{transcribed_text}"
-        )
+        logger.info("Running claim extraction agent")
+        agent = get_agent()
+        response = await agent.arun(f"Process this text:\n{transcribed_text}")
         
-        if not translation_response or not translation_response.content:
-            logger.error("Translation failed")
+        if not response or not response.content:
+            logger.error("Agent returned empty response")
             errors.append(ErrorDetail(
-                code="TRANSLATION_ERROR",
-                message="Failed to translate text",
+                code="CLAIM_EXTRACTION_ERROR",
+                message="Failed to extract claims",
                 severity="critical"
             ))
-            status = "failure"
             return ClaimExtractionResult(
-                status=status,
+                status="failure",
                 errors=errors,
                 meta=meta,
                 data=data
             )
         
-        translated_text = translation_response.content
-        data["translated_text"] = translated_text
-        logger.info("Translation completed")
-        
-        # Step 2: Speaker Identification
-        logger.info("Step 2: Identifying speakers")
-        speaker_agent = get_speaker_agent()
-        speaker_response = await speaker_agent.arun(
-            f"Identify speakers and structure dialogue:\n{translated_text}"
-        )
-        
-        if speaker_response and speaker_response.content:
-            try:
-                dialogue_text = speaker_response.content
-                if isinstance(dialogue_text, str):
-                    dialogue_json = json.loads(dialogue_text)
-                else:
-                    dialogue_json = dialogue_text
-                
-                if isinstance(dialogue_json, list):
-                    structured_dialogue = []
-                    for item in dialogue_json:
-                        segment = DialogueSegment(
-                            speaker=item.get("speaker", "unknown"),
-                            text=item.get("text", ""),
-                            confidence=item.get("confidence", 0.5)
-                        )
-                        structured_dialogue.append(segment.model_dump())
-                    data["structured_dialogue"] = structured_dialogue
-                    logger.info(f"Identified {len(structured_dialogue)} dialogue segments")
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning(f"Failed to parse speaker dialogue: {str(e)}")
-                errors.append(ErrorDetail(
-                    code="SPEAKER_DETECTION_ERROR",
-                    message="Failed to parse speaker identification",
-                    severity="warning"
-                ))
-                status = "partial_success"
-        else:
-            logger.warning("Speaker identification returned empty response")
+        try:
+            response_text = response.content
+            if isinstance(response_text, str):
+                result_json = json.loads(response_text)
+            else:
+                result_json = response_text
+            
+            # Parse translated text
+            if "translated_text" in result_json:
+                data["translated_text"] = result_json["translated_text"]
+            
+            # Parse structured dialogue
+            if "structured_dialogue" in result_json and isinstance(result_json["structured_dialogue"], list):
+                for item in result_json["structured_dialogue"]:
+                    segment = {
+                        "speaker": item.get("speaker", "unknown"),
+                        "text": item.get("text", ""),
+                        "confidence": item.get("confidence", 0.5)
+                    }
+                    data["structured_dialogue"].append(segment)
+            
+            # Parse claims
+            if "claims_by_creator" in result_json and isinstance(result_json["claims_by_creator"], list):
+                for item in result_json["claims_by_creator"]:
+                    claim = {
+                        "claim": item.get("claim", ""),
+                        "type": item.get("type", "unclear"),
+                        "confidence": item.get("confidence", 0.5),
+                        "source_span": item.get("source_span", "")
+                    }
+                    data["claims_by_creator"].append(claim)
+            
+            logger.info(f"Extracted {len(data['claims_by_creator'])} claims")
+            meta["confidence"] = 0.8 if not errors else 0.6
+            
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            logger.error(f"Failed to parse response: {str(e)}")
             errors.append(ErrorDetail(
-                code="SPEAKER_DETECTION_ERROR",
-                message="Speaker identification returned empty response",
-                severity="warning"
+                code="CLAIM_EXTRACTION_ERROR",
+                message="Failed to parse extraction results",
+                severity="critical"
             ))
-            status = "partial_success"
-        
-        # Step 3: Claim Extraction
-        logger.info("Step 3: Extracting claims from creator")
-        claim_agent = get_claim_agent()
-        
-        dialogue_text_for_claims = translated_text
-        if data["structured_dialogue"]:
-            dialogue_text_for_claims = json.dumps(data["structured_dialogue"])
-        
-        claim_response = await claim_agent.arun(
-            f"Extract factual claims made ONLY by 'creator':\n{dialogue_text_for_claims}"
-        )
-        
-        if claim_response and claim_response.content:
-            try:
-                claims_text = claim_response.content
-                if isinstance(claims_text, str):
-                    claims_json = json.loads(claims_text)
-                else:
-                    claims_json = claims_text
-                
-                if isinstance(claims_json, list):
-                    extracted_claims = []
-                    for item in claims_json:
-                        claim = Claim(
-                            claim=item.get("claim", ""),
-                            type=item.get("type", "unclear"),
-                            confidence=item.get("confidence", 0.5),
-                            source_span=item.get("source_span", "")
-                        )
-                        extracted_claims.append(claim.model_dump())
-                    
-                    data["claims_by_creator"] = extracted_claims
-                    logger.info(f"Extracted {len(extracted_claims)} claims")
-                    
-                    if len(extracted_claims) == 0:
-                        logger.info("No valid claims found")
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.warning(f"Failed to parse claims: {str(e)}")
-                errors.append(ErrorDetail(
-                    code="CLAIM_EXTRACTION_ERROR",
-                    message="Failed to parse extracted claims",
-                    severity="warning"
-                ))
-                if status == "success":
-                    status = "partial_success"
-        else:
-            logger.info("No claims extracted (valid case)")
-        
-        # Check for low confidence
-        overall_confidence = 0.8
-        if errors:
-            overall_confidence = 0.6
-        
-        meta["confidence"] = overall_confidence
+            status = "failure"
         
         logger.info(f"Claim extraction completed with status: {status}")
         return ClaimExtractionResult(
@@ -266,7 +160,7 @@ async def extract_claims(transcribed_text: str) -> ClaimExtractionResult:
         )
         
     except Exception as e:
-        logger.error(f"Error during claim extraction process: {str(e)}", exc_info=True)
+        logger.error(f"Error during claim extraction: {str(e)}", exc_info=True)
         errors.append(ErrorDetail(
             code="CLAIM_EXTRACTION_ERROR",
             message=f"Unexpected error: {str(e)}",
