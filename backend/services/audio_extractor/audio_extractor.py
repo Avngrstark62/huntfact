@@ -1,9 +1,10 @@
 import subprocess
-import logging
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
-logger = logging.getLogger(__name__)
+from logging_config import get_logger
+
+logger = get_logger("services.audio_extractor.audio_extractor")
 
 
 def _validate_url(url: str) -> bool:
