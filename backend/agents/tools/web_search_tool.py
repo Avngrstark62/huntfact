@@ -1,45 +1,32 @@
 """Web search tool for AI agents to perform web searches."""
 
 from typing import Any, Optional
-from agno.tools import Tool
+from agno.tools import tool
 from services.web_searcher import search_web
+from agents.tools.scrape_page_tool import _scrape_page_impl
 from logging_config import get_logger
 
 logger = get_logger("agents.tools.web_search_tool")
 
 
-def perform_web_search(
+async def _web_search_impl(
     query: str,
     max_results: int = 10,
-    region: str = "us-en",
+    region: str = "in-en",
     safesearch: str = "moderate",
     timelimit: Optional[str] = None,
     page: int = 1,
-    backend: str = "auto",
+    backend: str = "duckduckgo",
     proxy: Optional[str] = None,
-    timeout: Optional[int] = 5,
+    timeout: Optional[int] = 10,
     verify: bool = True,
 ) -> list[dict[str, Any]]:
     """
-    Perform a web search and return results.
-    
-    Args:
-        query: The search query string (required).
-        max_results: Maximum number of results to return. Defaults to 10.
-        region: Region for localized search (e.g., 'us-en', 'uk-en', 'ru-ru'). Defaults to 'us-en'.
-        safesearch: Safe search setting - 'on', 'moderate', or 'off'. Defaults to 'moderate'.
-        timelimit: Filter results by time - 'd' (day), 'w' (week), 'm' (month), 'y' (year). Defaults to None.
-        page: Page number for pagination (1-based). Defaults to 1.
-        backend: Which search engine to use - 'auto', 'duckduckgo', 'bing', 'google', 'brave', or comma-separated list. Defaults to 'auto'.
-        proxy: Proxy server URL (e.g., 'socks5h://127.0.0.1:9150'). Defaults to None.
-        timeout: HTTP request timeout in seconds. Defaults to 5.
-        verify: SSL certificate verification. Defaults to True.
-    
-    Returns:
-        List of search results with 'title', 'href', and 'body' fields.
+    Internal implementation for web search.
     """
     try:
-        logger.info(f"Performing web search with query: {query}")
+        logger.info(f"Web search initiated - Query: '{query}'")
+        logger.debug(f"Parameters: max_results={max_results}, region={region}, backend={backend}")
         results = search_web(
             query=query,
             max_results=max_results,
@@ -52,15 +39,36 @@ def perform_web_search(
             timeout=timeout,
             verify=verify,
         )
-        logger.info(f"Web search completed, found {len(results)} results")
+        logger.info(f"Web search completed - Found {len(results)} results")
+        logger.debug(f"Results: {results}")
         return results
     except Exception as e:
         logger.error(f"Web search failed: {str(e)}", exc_info=True)
         raise
 
 
-web_search_tool = Tool(
-    name="web_search",
-    description="Search the web for information using multiple search engines",
-    function=perform_web_search,
-)
+@tool
+async def web_search(
+    query: str,
+) -> list[dict[str, Any]]:
+    """
+    Perform a web search and return results.
+    
+    Args:
+        query: The search query string (required).
+    
+    Returns:
+        List of search results with 'title', 'href', and 'body' fields.
+    """
+    return await _web_search_impl(
+        query=query,
+        max_results=10,
+        region="in-en",
+        safesearch="moderate",
+        timelimit=None,
+        page=1,
+        backend="duckduckgo",
+        proxy=None,
+        timeout=10,
+        verify=True,
+    )

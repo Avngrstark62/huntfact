@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.12"
+resolution-markers = [
+    "python_full_version >= '3.14'",
+    "python_full_version < '3.14'",
+]
 
 [[package]]
 name = "agno"
@@ -205,6 +209,22 @@ wheels = [
 ]
 
 [[package]]
+name = "assemblyai"
+version = "0.59.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-settings", marker = "python_full_version >= '3.14'" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/44/da/01bf08e13219bc4efc311ab4271f053b26124be543c74d6f155cb1482733/assemblyai-0.59.0.tar.gz", hash = "sha256:aab887f97aec0c259341af9aa9deeddc4b6240da0919dda5ee796394c4d10a11", size = 57108, upload-time = "2026-03-25T14:26:28.883Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/3b/7324e06fe40e82d4a6ec932cd06c0231986e1aabddcc97746cc018ac7c3e/assemblyai-0.59.0-py3-none-any.whl", hash = "sha256:29ded9e1fb4f0587819ce178407b1f135645e8fdecbbfda437666f048c445e5c", size = 54031, upload-time = "2026-03-25T14:26:27.578Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -231,8 +251,10 @@ dependencies = [
     { name = "aio-pika" },
     { name = "aiohttp" },
     { name = "alembic" },
+    { name = "assemblyai" },
     { name = "beautifulsoup4" },
     { name = "click" },
+    { name = "deepgram-sdk" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "lxml" },
@@ -253,8 +275,10 @@ requires-dist = [
     { name = "aio-pika", specifier = ">=9.6.2" },
     { name = "aiohttp", specifier = ">=3.13.5" },
     { name = "alembic", specifier = ">=1.18.4" },
+    { name = "assemblyai", specifier = ">=0.59.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
     { name = "click", specifier = ">=8.3.1" },
+    { name = "deepgram-sdk", specifier = ">=6.1.1" },
     { name = "fastapi", specifier = ">=0.135.3" },
     { name = "google-genai", specifier = ">=1.72.0" },
     { name = "lxml", specifier = ">=6.0.3" },
@@ -522,6 +546,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/46/2d/a0ccdb78788064fa0dc901b8524e50615c42be1d78b78d646d0b28d09180/dateparser-1.4.0.tar.gz", hash = "sha256:97a21840d5ecdf7630c584f673338a5afac5dfe84f647baf4d7e8df98f9354a4", size = 321512, upload-time = "2026-03-26T09:56:10.292Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b4/0b/3c3bb7cbe757279e693a0be6049048012f794d01f81099609ecd53b899f0/dateparser-1.4.0-py3-none-any.whl", hash = "sha256:7902b8e85d603494bf70a5a0b1decdddb2270b9c6e6b2bc8a57b93476c0df378", size = 300379, upload-time = "2026-03-26T09:56:08.409Z" },
+]
+
+[[package]]
+name = "deepgram-sdk"
+version = "6.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/29/91/85360d998685fee6b570e12250e5ac74ca43420d5d22b44a865b6c3f2469/deepgram_sdk-6.1.1.tar.gz", hash = "sha256:78726f42b2386f80d9fdd92a22ac59ad5558b6c0475b29bb57273ddaaa344794", size = 202224, upload-time = "2026-03-27T19:59:57.202Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/7f/818ac35b40e38f225858cea38808c7fdd57292553479cabf0bebf7fcdc91/deepgram_sdk-6.1.1-py3-none-any.whl", hash = "sha256:329f45f2a084e8786d3e90d4a4aee630b85cf8770a3b2ee6323bedb176c47113", size = 576299, upload-time = "2026-03-27T19:59:55.949Z" },
 ]
 
 [[package]]

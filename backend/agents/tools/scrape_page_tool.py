@@ -1,14 +1,37 @@
 """Page scraper tool for AI agents to scrape web page content."""
 
 from typing import Union, List, Optional
-from agno.tools import Tool
-from services.page_scraper import scrape_page
+from agno.tools import tool
+from services.page_scraper import scrape_page as scrape_page_impl
 from logging_config import get_logger
 
 logger = get_logger("agents.tools.scrape_page_tool")
 
 
-async def perform_page_scrape(
+async def _scrape_page_impl(
+    url: Union[str, List[str]],
+) -> Union[dict, dict]:
+    """
+    Internal implementation for scraping content from one or more web pages.
+    """
+    try:
+        if isinstance(url, str):
+            logger.info(f"Page scrape initiated - URL: {url}")
+        else:
+            logger.info(f"Page scrape initiated - Scraping {len(url)} URLs")
+            logger.debug(f"URLs: {url}")
+        
+        result = await scrape_page_impl(url)
+        logger.info(f"Page scrape completed successfully")
+        logger.debug(f"Result: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Page scrape failed: {str(e)}", exc_info=True)
+        raise
+
+
+@tool
+async def scrape_page(
     url: Union[str, List[str]],
 ) -> Union[dict, dict]:
     """
@@ -39,22 +62,4 @@ async def perform_page_scrape(
                 ]
             }
     """
-    try:
-        if isinstance(url, str):
-            logger.info(f"Scraping single page: {url}")
-        else:
-            logger.info(f"Scraping {len(url)} pages")
-        
-        result = await scrape_page(url)
-        logger.info("Page scraping completed successfully")
-        return result
-    except Exception as e:
-        logger.error(f"Page scraping failed: {str(e)}", exc_info=True)
-        raise
-
-
-scrape_page_tool = Tool(
-    name="scrape_page",
-    description="Scrape content from web pages to extract text, title, and other information",
-    function=perform_page_scrape,
-)
+    return await _scrape_page_impl(url)

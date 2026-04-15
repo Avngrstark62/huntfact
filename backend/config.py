@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     transcriber_supported_formats: list[str] = [
         "mp3", "aac", "wav", "flac", "ogg", "m4a"
     ]
+    deepgram_api_key: str = "deepgram_api_key"
+    assemblyai_api_key: str = "assemblyai_api_key"
+
+    # Claim extraction service settings
+    claim_extraction_model_provider: str = "openai"
+    claim_extraction_model_name: str = "gpt-4o-mini"
+
+    # Reasoning model service settings
+    reasoning_model_provider: str = "openai"
+    reasoning_model_name: str = "gpt-4o-mini"
 
     class Config:
         env_file = ".env"

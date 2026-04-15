@@ -6,11 +6,11 @@ from services.web_searcher import search_web
 def main():
     """Perform a web search and display results."""
     # Perform a web search with default settings
-    query = "asaram bapu in ram mandir news"
+    query = "1990 Muslim Community fertility rate 4.5"
     print(f"Searching for: {query}\n")
 
     all_results = []
-    for i in range(4):
+    for i in range(1):
         print(f"Fetching page {i + 1}...")
         results = search_web(
                 query=query,
