@@ -44,7 +44,7 @@ async def handle_extract_questions_queries(job_id: str, job_state: dict) -> Tupl
     task = TaskMessage(
         job_id=job_id,
         step=FETCH_URLS,
-        priority=3,
+        priority=5,
         payload={}
     )
     

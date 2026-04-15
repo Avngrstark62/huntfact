@@ -56,7 +56,7 @@ async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optiona
     task = TaskMessage(
         job_id=job_id,
         step=TRANSLATE,
-        priority=2,
+        priority=3,
         payload={}
     )
     
