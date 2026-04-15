@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     reasoning_model_provider: str = "openai"
     reasoning_model_name: str = "gpt-4o-mini"
 
+    # Redis settings
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
