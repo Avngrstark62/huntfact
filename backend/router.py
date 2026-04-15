@@ -8,7 +8,7 @@ from config import settings
 from db.database import db
 from rmq.publisher import publish_task
 from rmq.schemas import TaskMessage
-from rmq.constants import DOWNLOAD, NOTIFY
+from rmq.constants import EXTRACT_AUDIO, NOTIFY
 from health import is_system_healthy, check_health_dependency
 from redis import set_job_data
 
@@ -87,7 +87,7 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
             
             task = TaskMessage(
                 job_id=job_id,
-                step=DOWNLOAD,
+                step=EXTRACT_AUDIO,
                 priority=1,
                 payload={}
             )
