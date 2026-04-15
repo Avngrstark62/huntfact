@@ -2,13 +2,14 @@ import asyncio
 import signal
 from typing import Optional
 from logging_config import get_logger, setup_logging
-from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, ANALYZE, NOTIFY
+from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, NOTIFY
 from rmq.consumer import start_consumer
 from rmq.connection import rabbitmq
 from rmq.schemas import TaskMessage
 from rmq.publisher import publish_task
 from redis import get_job_data, update_job_data
 from services.audio_extractor.handler import handle_extract_audio
+from services.transcriber.handler import handle_transcribe
 
 logger = get_logger("rmq.worker")
 
@@ -42,8 +43,8 @@ async def handle_task(msg: dict):
             updated_state, next_task = await handle_extract_audio(job_id, job_state)
         elif step == TRANSCRIBE:
             updated_state, next_task = await handle_transcribe(job_id, job_state)
-        elif step == ANALYZE:
-            updated_state, next_task = await handle_analyze(job_id, job_state)
+        elif step == TRANSLATE:
+            updated_state, next_task = await handle_translate(job_id, job_state)
         elif step == NOTIFY:
             updated_state, next_task = await handle_notify(job_id, job_state)
         else:
@@ -67,27 +68,14 @@ async def handle_task(msg: dict):
         raise
 
 
-async def handle_transcribe(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
+async def handle_translate(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
     """
-    Transcribe the extracted audio.
+    Translate the transcript.
     """
-    logger.info(f"Transcribing audio for job {job_id}")
-    # TODO: Implement transcription logic
-    # - Read audio bytes from job_state
-    # - Transcribe audio
-    # - Update state with transcript
-    # - Return updated state and next task
-    return job_state, None
-
-
-async def handle_analyze(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
-    """
-    Analyze the transcript for facts.
-    """
-    logger.info(f"Analyzing transcript for job {job_id}")
-    # TODO: Implement analysis logic
+    logger.info(f"Translating transcript for job {job_id}")
+    # TODO: Implement translation logic
     # - Read transcript from job_state
-    # - Analyze for facts
+    # - Translate transcript
     # - Update state with results
     # - Return updated state and next task
     return job_state, None
