@@ -1,9 +1,10 @@
 import asyncio
 import signal
 from logging_config import get_logger, setup_logging
-from rmq.constants import DOWNLOAD, TRANSCRIBE, ANALYZE, NOTIFY
+from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, ANALYZE, NOTIFY
 from rmq.consumer import start_consumer
 from rmq.connection import rabbitmq
+from services.audio_extractor.handler import handle_extract_audio
 
 logger = get_logger("rmq.worker")
 
@@ -22,8 +23,8 @@ async def handle_task(msg: dict):
         
         logger.info(f"Processing task - job_id: {job_id}, step: {step}")
         
-        if step == DOWNLOAD:
-            await handle_download(job_id, payload)
+        if step == EXTRACT_AUDIO:
+            await handle_extract_audio(job_id)
         elif step == TRANSCRIBE:
             await handle_transcribe(job_id, payload)
         elif step == ANALYZE:
@@ -39,21 +40,6 @@ async def handle_task(msg: dict):
     except Exception as e:
         logger.error(f"Task failed - job_id: {job_id}, step: {step}, error: {str(e)}", exc_info=True)
         raise
-
-
-async def handle_download(job_id: str, payload: dict):
-    """
-    Download video from CDN link.
-    """
-    hunt_id = payload.get("hunt_id")
-    cdn_link = payload.get("cdn_link")
-    
-    logger.info(f"Downloading video for hunt {hunt_id} from {cdn_link}")
-    # TODO: Implement video download logic
-    # - Download from cdn_link
-    # - Store locally
-    # - Update hunt status
-    pass
 
 
 async def handle_transcribe(job_id: str, payload: dict):
