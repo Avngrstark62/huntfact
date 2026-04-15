@@ -10,6 +10,7 @@ from rmq.publisher import publish_task
 from rmq.schemas import TaskMessage
 from rmq.constants import DOWNLOAD, NOTIFY
 from health import is_system_healthy, check_health_dependency
+from redis import set_job_data
 
 logger = get_logger("router")
 router = APIRouter()
@@ -55,6 +56,7 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
         if existing_hunt:
             logger.info(f"Hunt already exists for video: {request.video_link}")
             task = TaskMessage(
+                job_id=str(existing_hunt.id),
                 step=NOTIFY,
                 priority=4,
                 payload={"hunt_id": existing_hunt.id, "result": existing_hunt.result}
@@ -62,7 +64,20 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
         else:
             new_hunt = db.create_hunt(session, str(request.video_link))
             logger.info(f"Created new hunt with id: {new_hunt.id}")
+            
+            job_id = str(new_hunt.id)
+            job_state = {
+                "cdn_link": str(request.cdn_link),
+                "audio_bytes": None,
+                "utterances": [],
+                "items": []
+            }
+            
+            set_job_data(job_id, job_state, ttl=86400)
+            logger.info(f"Initialized job state in Redis for hunt: {job_id}")
+            
             task = TaskMessage(
+                job_id=job_id,
                 step=DOWNLOAD,
                 priority=1,
                 payload={"hunt_id": new_hunt.id, "cdn_link": str(request.cdn_link)}

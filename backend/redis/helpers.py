@@ -60,7 +60,33 @@ def get_job_data(job_id: str) -> Optional[Any]:
     return json.loads(data)
 
 
-def delete_job_data(job_id: str) -> None:
+def update_job_data(
+    job_id: str,
+    data: Any,
+) -> None:
+    """
+    Update job data in Redis while preserving original TTL.
+    
+    Args:
+        job_id: Unique job identifier
+        data: Updated data to store (will be JSON serialized)
+    """
+    client = redis_client.connect()
+    key = job_key(job_id)
+    
+    ttl = client.ttl(key)
+    if ttl == -2:
+        logger.warning(f"Job {job_id} not found in Redis during update")
+        return
+    
+    serialized_data = json.dumps(data)
+    
+    if ttl == -1:
+        client.set(key, serialized_data)
+    else:
+        client.setex(key, ttl, serialized_data)
+    
+    logger.debug(f"Updated job {job_id}")
     """
     Delete job data from Redis.
     
