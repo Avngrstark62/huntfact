@@ -2,7 +2,7 @@ import asyncio
 import signal
 from typing import Optional
 from logging_config import get_logger, setup_logging
-from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES, FETCH_URLS, NOTIFY
+from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES, FETCH_URLS, SELECT_URLS, NOTIFY
 from rmq.consumer import start_consumer
 from rmq.connection import rabbitmq
 from rmq.schemas import TaskMessage
@@ -12,6 +12,7 @@ from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
 from services.extract_questions_queries.handler import handle_extract_questions_queries
+from services.fetch_urls.handler import handle_fetch_urls
 
 logger = get_logger("rmq.worker")
 
@@ -51,6 +52,8 @@ async def handle_task(msg: dict):
             updated_state, next_task = await handle_extract_questions_queries(job_id, job_state)
         elif step == FETCH_URLS:
             updated_state, next_task = await handle_fetch_urls(job_id, job_state)
+        elif step == SELECT_URLS:
+            updated_state, next_task = await handle_select_urls(job_id, job_state)
         elif step == NOTIFY:
             updated_state, next_task = await handle_notify(job_id, job_state)
         else:
@@ -74,15 +77,15 @@ async def handle_task(msg: dict):
         raise
 
 
-async def handle_fetch_urls(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
+async def handle_select_urls(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
     """
-    Fetch URLs for extracted questions/queries.
+    Select best URLs from fetched URLs for each query.
     """
-    logger.info(f"Fetching URLs for job {job_id}")
-    # TODO: Implement URL fetching logic
-    # - Read items from job_state
-    # - Fetch URLs for each query
-    # - Update state with results
+    logger.info(f"Selecting URLs for job {job_id}")
+    # TODO: Implement URL selection logic
+    # - Read items with urls from job_state
+    # - Select best URLs based on relevance, quality, etc.
+    # - Update state with selected URLs
     # - Return updated state and next task
     return job_state, None
 
