@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     queue_name: str = "task_queue"
-    max_priority: int = 10
+    max_priority: int = 20
     prefetch_count: int = 1
 
     google_api_key: str
@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
+    redis_password: str = ""
 
     # Firebase settings
     firebase_credentials_path: str = "serviceAccountKey.json"

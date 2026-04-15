@@ -1,7 +1,7 @@
 import json
 from typing import Any, Optional
 
-from redis.client import redis_client
+from .client import redis_client
 from logging_config import get_logger
 
 logger = get_logger("redis")
@@ -87,6 +87,9 @@ def update_job_data(
         client.setex(key, ttl, serialized_data)
     
     logger.debug(f"Updated job {job_id}")
+
+
+def delete_job_data(job_id: str) -> None:
     """
     Delete job data from Redis.
     

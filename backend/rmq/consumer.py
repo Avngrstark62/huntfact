@@ -12,9 +12,11 @@ async def start_consumer(handler):
     try:
         channel = await rabbitmq.get_channel(settings.prefetch_count)
 
-        queue = await channel.get_queue(settings.queue_name)
-
-        logger.info("Consumer started")
+        queue = await channel.declare_queue(
+            settings.queue_name,
+            durable=True,
+            arguments={"x-max-priority": settings.max_priority}
+        )
 
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
@@ -23,8 +25,8 @@ async def start_consumer(handler):
                         msg = json.loads(message.body)
                         await handler(msg)
                     except Exception as e:
-                        logger.error(f"Error processing message: {str(e)}", exc_info=True)
+                        logger.error(f"[CONSUMER] Error processing message: {str(e)}", exc_info=True)
                         raise
     except Exception as e:
-        logger.error(f"Consumer failed: {str(e)}", exc_info=True)
+        logger.error(f"[CONSUMER] Consumer failed: {str(e)}", exc_info=True)
         raise

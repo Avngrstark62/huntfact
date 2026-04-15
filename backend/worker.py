@@ -2,6 +2,7 @@ import asyncio
 import signal
 from typing import Optional
 from logging_config import get_logger, setup_logging
+from firebase_config import initialize_firebase
 from rmq.constants import (
     EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES,
     FETCH_URLS, SELECT_URLS, FETCH_PAGES, SAVE_DATA_TO_RAG,
@@ -11,7 +12,7 @@ from rmq.consumer import start_consumer
 from rmq.connection import rabbitmq
 from rmq.schemas import TaskMessage
 from rmq.publisher import publish_task
-from redis import get_job_data, update_job_data
+from rmq_redis import get_job_data, update_job_data
 from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
@@ -36,17 +37,17 @@ async def handle_task(msg: dict):
     Fetches job state from Redis, routes to step-specific handler,
     updates state, and publishes next task.
     """
+    job_id = None
+    step = None
     try:
         job_id = msg.get("job_id")
         step = msg.get("step")
         payload = msg.get("payload", {})
         
-        logger.info(f"Processing task - job_id: {job_id}, step: {step}")
-        
         # Fetch job state from Redis
         job_state = get_job_data(job_id)
         if job_state is None:
-            logger.error(f"Job state not found in Redis for job_id: {job_id}")
+            logger.error(f"[TASK HANDLER] Job state not found in Redis for job_id: {job_id}")
             return
         
         # Route to step-specific handler and get updated state and next task
@@ -78,28 +79,25 @@ async def handle_task(msg: dict):
         elif step == NOTIFY:
             updated_state, next_task = await handle_notify(job_id, job_state)
         else:
-            logger.error(f"Unknown step: {step}")
+            logger.error(f"[TASK HANDLER] Unknown step: {step}")
             raise ValueError(f"Unknown step: {step}")
         
         # Update job state in Redis
         if updated_state is not None:
             update_job_data(job_id, updated_state)
-            logger.info(f"Updated job state in Redis for job_id: {job_id}")
         
         # Publish next task if provided
         if next_task is not None:
             await publish_task(next_task)
-            logger.info(f"Published next task: {next_task.step}")
-        
-        logger.info(f"Task completed - job_id: {job_id}, step: {step}")
         
     except Exception as e:
-        logger.error(f"Task failed - job_id: {job_id}, step: {step}, error: {str(e)}", exc_info=True)
+        logger.error(f"[TASK HANDLER] Task failed - job_id: {job_id}, step: {step}, error: {str(e)}", exc_info=True)
         raise
 
 
 async def main():
     setup_logging()
+    initialize_firebase()
     logger.info("Starting worker...")
     
     loop = asyncio.get_event_loop()

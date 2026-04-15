@@ -21,6 +21,10 @@ async def send_notification(result: Dict[str, Any], fcm_token: str) -> None:
     try:
         from firebase_admin import messaging
         
+        # Parse result if it's a JSON string
+        if isinstance(result, str):
+            result = json.loads(result)
+        
         message = messaging.Message(
             notification=messaging.Notification(
                 title="Hunt Fact Analysis Complete",

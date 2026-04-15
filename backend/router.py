@@ -11,7 +11,7 @@ from rmq.publisher import publish_task
 from rmq.schemas import TaskMessage
 from rmq.constants import EXTRACT_AUDIO, NOTIFY
 from health import is_system_healthy, check_health_dependency
-from redis import set_job_data
+from rmq_redis import set_job_data
 
 logger = get_logger("router")
 router = APIRouter()

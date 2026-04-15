@@ -7,7 +7,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 object RetrofitClient {
     private var apiService: ApiService? = null
 
-    fun getApiService(baseUrl: String = "https://api.example.com"): ApiService {
+    fun getApiService(baseUrl: String = "http://172.23.5.136:8000"): ApiService {
         if (apiService == null) {
             val retrofit = Retrofit.Builder()
                 .baseUrl(baseUrl)

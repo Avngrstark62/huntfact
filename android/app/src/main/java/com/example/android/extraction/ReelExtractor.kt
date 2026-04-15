@@ -49,10 +49,13 @@ object ReelExtractor {
 
     suspend fun extractCdnUrl(reelUrl: String): String? = withContext(Dispatchers.IO) {
         try {
+            // Clean the URL first (remove query parameters)
+            val cleanedUrl = cleanInstagramUrl(reelUrl)
+            
             // Step 1: Extract shortcode
-            val shortcode = extractShortcodeFromUrl(reelUrl)
+            val shortcode = extractShortcodeFromUrl(cleanedUrl)
             if (shortcode == null) {
-                Log.e(TAG, "Failed to extract shortcode from URL: $reelUrl")
+                Log.e(TAG, "Failed to extract shortcode from URL: $cleanedUrl")
                 return@withContext null
             }
             Log.d(TAG, "Extracted shortcode: $shortcode")
@@ -201,6 +204,12 @@ object ReelExtractor {
             Log.e(TAG, "Unexpected error: ${e.message}", e)
             null
         }
+    }
+
+    fun cleanInstagramUrl(url: String): String {
+        // Remove query parameters and trailing slash from Instagram URL
+        // Example: https://www.instagram.com/p/DXJaD4sEdWZ/?igsh=... → https://www.instagram.com/p/DXJaD4sEdWZ
+        return url.substringBefore('?').removeSuffix("/")
     }
 
     private fun extractShortcodeFromUrl(url: String): String? {

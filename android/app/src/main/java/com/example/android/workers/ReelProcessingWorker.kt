@@ -60,8 +60,9 @@ class ReelProcessingWorker(
             // Call backend API
             Log.d(TAG, "📤 Sending reel to HuntFact backend...")
             val apiService = RetrofitClient.getApiService()
+            val cleanedReelUrl = ReelExtractor.cleanInstagramUrl(reelUrl)
             val request = com.example.android.network.StartHuntRequest(
-                video_link = reelUrl,
+                video_link = cleanedReelUrl,
                 cdn_link = cdnUrl,
                 fcm_token = fcmToken
             )

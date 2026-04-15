@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext (HTTP) traffic only for local development IP -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">172.23.5.136</domain>
+    </domain-config>
+
+    <!-- All other domains require HTTPS -->
+    <default-config cleartextTrafficPermitted="false" />
+</network-security-config>
