@@ -2,7 +2,7 @@ import asyncio
 import signal
 from typing import Optional
 from logging_config import get_logger, setup_logging
-from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES, NOTIFY
+from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES, FETCH_URLS, NOTIFY
 from rmq.consumer import start_consumer
 from rmq.connection import rabbitmq
 from rmq.schemas import TaskMessage
@@ -11,6 +11,7 @@ from redis import get_job_data, update_job_data
 from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
+from services.extract_questions_queries.handler import handle_extract_questions_queries
 
 logger = get_logger("rmq.worker")
 
@@ -48,6 +49,8 @@ async def handle_task(msg: dict):
             updated_state, next_task = await handle_translate(job_id, job_state)
         elif step == EXTRACT_QUESTIONS_QUERIES:
             updated_state, next_task = await handle_extract_questions_queries(job_id, job_state)
+        elif step == FETCH_URLS:
+            updated_state, next_task = await handle_fetch_urls(job_id, job_state)
         elif step == NOTIFY:
             updated_state, next_task = await handle_notify(job_id, job_state)
         else:
@@ -71,14 +74,14 @@ async def handle_task(msg: dict):
         raise
 
 
-async def handle_extract_questions_queries(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
+async def handle_fetch_urls(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
     """
-    Extract questions and queries from translated utterances.
+    Fetch URLs for extracted questions/queries.
     """
-    logger.info(f"Extracting questions and queries for job {job_id}")
-    # TODO: Implement extraction logic
-    # - Read utterances_english from job_state
-    # - Extract questions and queries
+    logger.info(f"Fetching URLs for job {job_id}")
+    # TODO: Implement URL fetching logic
+    # - Read items from job_state
+    # - Fetch URLs for each query
     # - Update state with results
     # - Return updated state and next task
     return job_state, None
