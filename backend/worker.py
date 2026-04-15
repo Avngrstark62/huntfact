@@ -2,7 +2,7 @@ import asyncio
 import signal
 from typing import Optional
 from logging_config import get_logger, setup_logging
-from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, NOTIFY
+from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES, NOTIFY
 from rmq.consumer import start_consumer
 from rmq.connection import rabbitmq
 from rmq.schemas import TaskMessage
@@ -10,6 +10,7 @@ from rmq.publisher import publish_task
 from redis import get_job_data, update_job_data
 from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
+from services.translator.handler import handle_translate
 
 logger = get_logger("rmq.worker")
 
@@ -45,6 +46,8 @@ async def handle_task(msg: dict):
             updated_state, next_task = await handle_transcribe(job_id, job_state)
         elif step == TRANSLATE:
             updated_state, next_task = await handle_translate(job_id, job_state)
+        elif step == EXTRACT_QUESTIONS_QUERIES:
+            updated_state, next_task = await handle_extract_questions_queries(job_id, job_state)
         elif step == NOTIFY:
             updated_state, next_task = await handle_notify(job_id, job_state)
         else:
@@ -68,14 +71,14 @@ async def handle_task(msg: dict):
         raise
 
 
-async def handle_translate(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
+async def handle_extract_questions_queries(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
     """
-    Translate the transcript.
+    Extract questions and queries from translated utterances.
     """
-    logger.info(f"Translating transcript for job {job_id}")
-    # TODO: Implement translation logic
-    # - Read transcript from job_state
-    # - Translate transcript
+    logger.info(f"Extracting questions and queries for job {job_id}")
+    # TODO: Implement extraction logic
+    # - Read utterances_english from job_state
+    # - Extract questions and queries
     # - Update state with results
     # - Return updated state and next task
     return job_state, None

@@ -77,9 +77,6 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
             job_id = str(new_hunt.id)
             job_state = {
                 "cdn_link": str(request.cdn_link),
-                "audio_bytes": None,
-                "utterances": [],
-                "items": []
             }
             
             set_job_data(job_id, job_state, ttl=86400)
