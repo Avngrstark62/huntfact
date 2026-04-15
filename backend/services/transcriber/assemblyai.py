@@ -3,6 +3,7 @@ Audio transcription service using AssemblyAI REST API.
 Handles audio bytes and returns full transcription response with diarization.
 """
 
+import asyncio
 import io
 import time
 from typing import Optional, Dict, Any
@@ -19,7 +20,7 @@ ASSEMBLYAI_UPLOAD_URL = "https://api.assemblyai.com/v2/upload"
 ASSEMBLYAI_TRANSCRIPT_URL = "https://api.assemblyai.com/v2/transcript"
 
 
-def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[Dict[str, Any]]:
+async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[Dict[str, Any]]:
     """
     Transcribe audio bytes using AssemblyAI REST API with diarization.
     
@@ -126,7 +127,7 @@ def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[Dict[str, Any]]:
                 logger.error(error_msg)
                 raise Exception(error_msg)
 
-            time.sleep(1)  # polling interval
+            await asyncio.sleep(1)  # polling interval
 
     except ValueError as e:
         logger.error(f"Validation error: {str(e)}")
