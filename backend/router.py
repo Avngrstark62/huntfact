@@ -50,16 +50,25 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
     """
     try:
         logger.info(f"Starting hunt with video: {request.video_link}, cdn: {request.cdn_link}")
-        
+
         existing_hunt = db.get_hunt_by_video_link(session, str(request.video_link))
         
         if existing_hunt:
             logger.info(f"Hunt already exists for video: {request.video_link}")
+
+            job_id = str(existing_hunt.id)
+            job_state = {
+                "result": existing_hunt.result
+            }
+
+            set_job_data(job_id, job_state, ttl=86400)
+            logger.info(f"Initialized job state in Redis for hunt: {job_id}")
+
             task = TaskMessage(
                 job_id=str(existing_hunt.id),
                 step=NOTIFY,
                 priority=4,
-                payload={"hunt_id": existing_hunt.id, "result": existing_hunt.result}
+                payload={}
             )
         else:
             new_hunt = db.create_hunt(session, str(request.video_link))
@@ -80,7 +89,7 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
                 job_id=job_id,
                 step=DOWNLOAD,
                 priority=1,
-                payload={"hunt_id": new_hunt.id, "cdn_link": str(request.cdn_link)}
+                payload={}
             )
         
         await publish_task(task)
