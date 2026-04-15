@@ -10,8 +10,8 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.example.android.extraction.ReelExtractor
-import com.example.android.network.FactCheckRequest
 import com.example.android.network.RetrofitClient
+import com.example.android.network.StartHuntRequest
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
 
@@ -60,13 +60,14 @@ class ReelProcessingWorker(
             // Call backend API
             Log.d(TAG, "📤 Sending reel to HuntFact backend...")
             val apiService = RetrofitClient.getApiService()
-            val request = FactCheckRequest(
-                cdn_url = cdnUrl,
+            val request = com.example.android.network.StartHuntRequest(
+                video_link = reelUrl,
+                cdn_link = cdnUrl,
                 fcm_token = fcmToken
             )
 
             return try {
-                val response = apiService.submitFactCheck(request)
+                val response = apiService.startHunt(request)
                 if (response.success) {
                     Log.d(TAG, "✅ Successfully sent to HuntFact backend!")
                     Log.d(TAG, "📨 Response: ${response.message}")

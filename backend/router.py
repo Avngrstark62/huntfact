@@ -1,6 +1,7 @@
 from fastapi import APIRouter, status, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+import uuid
 
 from logging_config import get_logger
 from schemas import StartHuntRequest, StartHuntResponse, HealthResponse
@@ -53,19 +54,23 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
 
         existing_hunt = db.get_hunt_by_video_link(session, str(request.video_link))
         
+        job_id = str(uuid.uuid4())
+        logger.info(f"Generated job_id: {job_id}")
+        
         if existing_hunt:
             logger.info(f"Hunt already exists for video: {request.video_link}")
 
-            job_id = str(existing_hunt.id)
             job_state = {
+                "hunt_id": existing_hunt.id,
+                "fcm_token": request.fcm_token,
                 "result": existing_hunt.result
             }
 
             set_job_data(job_id, job_state, ttl=86400)
-            logger.info(f"Initialized job state in Redis for hunt: {job_id}")
+            logger.info(f"Initialized job state in Redis for job_id: {job_id}, hunt_id: {existing_hunt.id}")
 
             task = TaskMessage(
-                job_id=str(existing_hunt.id),
+                job_id=job_id,
                 step=NOTIFY,
                 priority=4,
                 payload={}
@@ -74,13 +79,14 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
             new_hunt = db.create_hunt(session, str(request.video_link))
             logger.info(f"Created new hunt with id: {new_hunt.id}")
             
-            job_id = str(new_hunt.id)
             job_state = {
+                "hunt_id": new_hunt.id,
+                "fcm_token": request.fcm_token,
                 "cdn_link": str(request.cdn_link),
             }
             
             set_job_data(job_id, job_state, ttl=86400)
-            logger.info(f"Initialized job state in Redis for hunt: {job_id}")
+            logger.info(f"Initialized job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
             
             task = TaskMessage(
                 job_id=job_id,
@@ -97,11 +103,10 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
             message="Hunt started successfully",
             result="Processing",
         )
-            
+             
     except Exception as e:
         logger.error(f"Unexpected error in start_hunt: {str(e)}", exc_info=settings.debug)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal Server Error"}
         )
-

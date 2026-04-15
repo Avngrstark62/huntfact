@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
 
+    # Firebase settings
+    firebase_credentials_path: str = "serviceAccountKey.json"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

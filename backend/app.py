@@ -5,6 +5,7 @@ from config import settings
 from router import router
 from db.database import db, Base
 from rmq.connection import rabbitmq
+from firebase_config import initialize_firebase
 
 setup_logging()
 logger = get_logger("app")
@@ -43,6 +44,12 @@ class App:
             except Exception as e:
                 logger.error(f"Failed to initialize RabbitMQ: {str(e)}", exc_info=True)
                 rabbitmq.is_healthy = False
+            
+            try:
+                initialize_firebase()
+                logger.info("Firebase initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Firebase: {str(e)}", exc_info=True)
 
         @self.app.on_event("shutdown")
         async def shutdown_event():

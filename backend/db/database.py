@@ -57,6 +57,21 @@ class Database:
 
         return session.query(Hunt).filter(Hunt.video_link == video_link).first()
 
+    def update_hunt_result(self, session: Session, hunt_id: int, result: str):
+        from db.models.hunt import Hunt
+
+        hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
+        if hunt:
+            hunt.result = result
+            try:
+                session.commit()
+            except:
+                session.rollback()
+                raise
+            session.refresh(hunt)
+            return hunt
+        return None
+
 
 # ✅ singleton instance
 db = Database()

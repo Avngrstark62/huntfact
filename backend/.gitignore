@@ -208,3 +208,5 @@ __marimo__/
 
 temp_docs/*
 agents/test_extractor.py
+
+serviceAccountKey.json

@@ -20,16 +20,34 @@ class FactCheckMessagingService : FirebaseMessagingService() {
 
         val title = remoteMessage.notification?.title ?: "Fact Check Ready"
         val body = remoteMessage.notification?.body ?: "Your fact check is ready"
-        val resultText = remoteMessage.data["result"] ?: body
+        
+        val verdict = remoteMessage.data["verdict"] ?: ""
+        val confidence = remoteMessage.data["confidence"] ?: ""
+        val explanation = remoteMessage.data["explanation"] ?: ""
+        val sources = remoteMessage.data["sources"] ?: "[]"
 
-        showNotification(title, body, resultText)
+        showNotification(title, body, verdict, confidence, explanation, sources)
     }
 
     override fun onNewToken(token: String) {
         Log.d(TAG, "New FCM token: $token")
+        saveFcmToken(token)
     }
 
-    private fun showNotification(title: String, body: String, resultText: String) {
+    private fun saveFcmToken(token: String) {
+        val sharedPref = getSharedPreferences(SHARED_PREF_NAME, Context.MODE_PRIVATE)
+        sharedPref.edit().putString(FCM_TOKEN_KEY, token).apply()
+        Log.d(TAG, "FCM token saved: $token")
+    }
+
+    private fun showNotification(
+        title: String,
+        body: String,
+        verdict: String,
+        confidence: String,
+        explanation: String,
+        sources: String
+    ) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = CHANNEL_ID
 
@@ -43,7 +61,10 @@ class FactCheckMessagingService : FirebaseMessagingService() {
         }
 
         val resultIntent = Intent(this, ResultActivity::class.java).apply {
-            putExtra("result_text", resultText)
+            putExtra("verdict", verdict)
+            putExtra("confidence", confidence)
+            putExtra("explanation", explanation)
+            putExtra("sources", sources)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
@@ -69,5 +90,8 @@ class FactCheckMessagingService : FirebaseMessagingService() {
         private const val TAG = "FactCheckMessagingService"
         private const val CHANNEL_ID = "fact_check_channel"
         private const val NOTIFICATION_ID = 1
+        private const val SHARED_PREF_NAME = "fact_check_prefs"
+        private const val FCM_TOKEN_KEY = "fcm_token"
     }
 }
+

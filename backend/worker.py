@@ -2,7 +2,11 @@ import asyncio
 import signal
 from typing import Optional
 from logging_config import get_logger, setup_logging
-from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES, FETCH_URLS, SELECT_URLS, NOTIFY
+from rmq.constants import (
+    EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES,
+    FETCH_URLS, SELECT_URLS, FETCH_PAGES, SAVE_DATA_TO_RAG,
+    ANSWER_QUESTIONS, GENERATE_RESULT, SAVE_RESULT_TO_DB, NOTIFY
+)
 from rmq.consumer import start_consumer
 from rmq.connection import rabbitmq
 from rmq.schemas import TaskMessage
@@ -13,6 +17,13 @@ from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
 from services.extract_questions_queries.handler import handle_extract_questions_queries
 from services.fetch_urls.handler import handle_fetch_urls
+from services.select_urls.handler import handle_select_urls
+from services.fetch_pages.handler import handle_fetch_pages
+from services.save_data_to_rag.handler import handle_save_data_to_rag
+from services.answer_questions.handler import handle_answer_questions
+from services.generate_result.handler import handle_generate_result
+from services.save_result_to_db.handler import handle_save_result_to_db
+from services.notification_sender.handler import handle_notify
 
 logger = get_logger("rmq.worker")
 
@@ -54,6 +65,16 @@ async def handle_task(msg: dict):
             updated_state, next_task = await handle_fetch_urls(job_id, job_state)
         elif step == SELECT_URLS:
             updated_state, next_task = await handle_select_urls(job_id, job_state)
+        elif step == FETCH_PAGES:
+            updated_state, next_task = await handle_fetch_pages(job_id, job_state)
+        elif step == SAVE_DATA_TO_RAG:
+            updated_state, next_task = await handle_save_data_to_rag(job_id, job_state)
+        elif step == ANSWER_QUESTIONS:
+            updated_state, next_task = await handle_answer_questions(job_id, job_state)
+        elif step == GENERATE_RESULT:
+            updated_state, next_task = await handle_generate_result(job_id, job_state)
+        elif step == SAVE_RESULT_TO_DB:
+            updated_state, next_task = await handle_save_result_to_db(job_id, job_state)
         elif step == NOTIFY:
             updated_state, next_task = await handle_notify(job_id, job_state)
         else:
@@ -75,31 +96,6 @@ async def handle_task(msg: dict):
     except Exception as e:
         logger.error(f"Task failed - job_id: {job_id}, step: {step}, error: {str(e)}", exc_info=True)
         raise
-
-
-async def handle_select_urls(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
-    """
-    Select best URLs from fetched URLs for each query.
-    """
-    logger.info(f"Selecting URLs for job {job_id}")
-    # TODO: Implement URL selection logic
-    # - Read items with urls from job_state
-    # - Select best URLs based on relevance, quality, etc.
-    # - Update state with selected URLs
-    # - Return updated state and next task
-    return job_state, None
-
-
-async def handle_notify(job_id: str, job_state: dict) -> tuple[dict, Optional[TaskMessage]]:
-    """
-    Notify user with results.
-    """
-    logger.info(f"Notifying user for job {job_id}")
-    # TODO: Implement notification logic
-    # - Send email/notification
-    # - Update hunt status to completed
-    # - Return updated state and no next task
-    return job_state, None
 
 
 async def main():
