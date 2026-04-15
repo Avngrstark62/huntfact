@@ -72,7 +72,7 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
             task = TaskMessage(
                 job_id=job_id,
                 step=NOTIFY,
-                priority=4,
+                priority=12,
                 payload={}
             )
         else:
