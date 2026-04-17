@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     claim_extraction_model_provider: str = "openai"
     claim_extraction_model_name: str = "gpt-4o-mini"
 
-    # Reasoning model service settings
-    reasoning_model_provider: str = "openai"
-    reasoning_model_name: str = "gpt-4o-mini"
+    # Model settings
+    reasoning_model: str = "gpt-4o-mini"
+    cheap_model: str = "gpt-5-nano"
 
     # Redis settings
     redis_host: str = "localhost"
