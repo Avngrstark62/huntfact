@@ -3,6 +3,7 @@ from logging_config import get_logger
 from services.fetch_pages.fetch_pages import fetch_pages
 from rmq.schemas import TaskMessage
 from rmq.constants import SAVE_DATA_TO_RAG
+from rmq_redis import set_job_data
 
 logger = get_logger("services.fetch_pages.handler")
 
@@ -12,7 +13,7 @@ async def handle_fetch_pages(job_id: str, job_state: dict) -> Tuple[dict, Option
     Fetch and scrape pages from selected URLs.
     
     Extracts selected URLs from all items, scrapes them, and stores
-    to mocked GCS. Updates state with GCS reference.
+    to Redis. Updates state with pages data.
     """
     logger.info(f"Starting page fetching for job: {job_id}")
     
@@ -34,9 +35,10 @@ async def handle_fetch_pages(job_id: str, job_state: dict) -> Tuple[dict, Option
     logger.info(f"Fetching {len(selected_urls_list)} pages for job_id: {job_id}")
     
     result = await fetch_pages(selected_urls_list)
+    pages_data = result.get("pages_data")
     
-    job_state["gcs_reference"] = result.get("gcs_reference")
-    job_state["pages_data"] = result.get("pages_data")
+    set_job_data(job_id, pages_data)
+    job_state["pages_data"] = pages_data
     
     logger.info(f"Page fetching completed for job_id: {job_id}")
     

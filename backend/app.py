@@ -6,6 +6,7 @@ from router import router
 from db.database import db, Base
 from rmq.connection import rabbitmq
 from firebase_config import initialize_firebase
+from chroma_client import chroma_client
 
 setup_logging()
 logger = get_logger("app")
@@ -50,6 +51,13 @@ class App:
                 logger.info("Firebase initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Firebase: {str(e)}", exc_info=True)
+            
+            try:
+                chroma_client.connect()
+                logger.info("ChromaDB connection established successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize ChromaDB: {str(e)}", exc_info=True)
+                chroma_client.is_healthy = False
 
         @self.app.on_event("shutdown")
         async def shutdown_event():
@@ -64,6 +72,12 @@ class App:
                 logger.info("RabbitMQ connection closed")
             except Exception as e:
                 logger.error(f"Error closing RabbitMQ: {str(e)}", exc_info=True)
+            
+            try:
+                chroma_client.disconnect()
+                logger.info("ChromaDB connection closed")
+            except Exception as e:
+                logger.error(f"Error closing ChromaDB: {str(e)}", exc_info=True)
 
     def _register_routes(self):
         self.app.include_router(router)

@@ -3,31 +3,33 @@ from logging_config import get_logger
 from services.save_data_to_rag.save_data_to_rag import save_data_to_rag
 from rmq.schemas import TaskMessage
 from rmq.constants import ANSWER_QUESTIONS
+from rmq_redis import get_job_data
 
 logger = get_logger("services.save_data_to_rag.handler")
 
 
 async def handle_save_data_to_rag(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
     """
-    Save fetched pages to RAG (mocked).
+    Save fetched pages to ChromaDB with embeddings.
     
-    Takes GCS reference and pages data from state and saves to RAG.
-    Updates state with RAG reference.
+    Fetches page data from Redis, chunks it, generates embeddings,
+    and ingests into ChromaDB.
     """
     logger.info(f"Starting data save to RAG for job: {job_id}")
     
-    gcs_reference = job_state.get("gcs_reference")
-    pages_data = job_state.get("pages_data", [])
+    pages_data = get_job_data(job_id)
     
-    if not gcs_reference:
-        logger.error(f"No GCS reference found in job state for job_id: {job_id}")
+    if not pages_data:
+        logger.error(f"No page data found in Redis for job_id: {job_id}")
         return job_state, None
     
-    logger.info(f"Saving data from GCS to RAG for job_id: {job_id}")
+    logger.info(f"Retrieved {len(pages_data)} pages from Redis for job_id: {job_id}")
     
-    result = await save_data_to_rag(gcs_reference, pages_data)
-    
-    job_state["rag_reference"] = result.get("rag_reference")
+    try:
+        await save_data_to_rag(job_id, pages_data)
+    except Exception as e:
+        logger.error(f"Failed to save data to RAG for job_id: {job_id}: {str(e)}", exc_info=True)
+        return job_state, None
     
     logger.info(f"Data save to RAG completed for job_id: {job_id}")
     
@@ -39,3 +41,4 @@ async def handle_save_data_to_rag(job_id: str, job_state: dict) -> Tuple[dict, O
     )
     
     return job_state, task
+

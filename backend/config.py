@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: str = ""
 
+    # ChromaDB settings
+    chroma_host: str = "localhost"
+    chroma_port: int = 9275
+
     # Firebase settings
     firebase_credentials_path: str = "serviceAccountKey.json"
 
