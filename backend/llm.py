@@ -16,6 +16,21 @@ class LLM:
     def __init__(self):
         self.client = OpenAI(api_key=settings.openai_api_key)
     
+    def _log_usage(self, model: str, usage):
+        """Log token usage and response details if debug is enabled."""
+        print(f"DEBUG CHECK: llm_debug={settings.llm_debug}")
+        
+        if not settings.llm_debug:
+            return
+        
+        logger.info(
+            f"LLM Call Details:\n"
+            f"  Model: {model}\n"
+            f"  Prompt tokens: {usage.prompt_tokens}\n"
+            f"  Completion tokens: {usage.completion_tokens}\n"
+            f"  Total tokens: {usage.total_tokens}"
+        )
+    
     async def call(
         self,
         model: str,
@@ -36,6 +51,8 @@ class LLM:
                 model=model,
                 messages=messages,
             )
+            
+            self._log_usage(model, response.usage)
             
             return response.choices[0].message.content
         except Exception as e:
@@ -67,6 +84,8 @@ class LLM:
                 messages=messages,
                 response_format=schema_model,
             )
+            
+            self._log_usage(model, response.usage)
             
             return response.choices[0].message.parsed
         except Exception as e:

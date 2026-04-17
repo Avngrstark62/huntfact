@@ -35,7 +35,9 @@ class Settings(BaseSettings):
 
     # Model settings
     reasoning_model: str = "gpt-4o-mini"
-    cheap_model: str = "gpt-5-nano"
+    cheap_model: str = "gpt-4.1-nano"
+    # cheap_model: str = "gpt-4o-mini"
+    llm_debug: bool = False
 
     # Redis settings
     redis_host: str = "localhost"

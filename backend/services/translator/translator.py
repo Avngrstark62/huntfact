@@ -7,23 +7,15 @@ from pydantic import BaseModel
 logger = get_logger("services.translator.translator")
 
 
-class TranslatedUtterance(BaseModel):
-    speaker: str
-    text: str
-    start: int
-    end: int
-    confidence: float
-
-
 class TranslationResponse(BaseModel):
-    utterances: List[TranslatedUtterance]
+    translated_texts: List[str]
 
 
 async def translate_utterances(utterances: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Translate utterances to English using OpenAI.
     
-    Preserves the structure of utterances while translating text to English.
+    Extracts text from utterances, translates them, and reconstructs the full utterance objects.
     
     Args:
         utterances: List of utterance dictionaries with speaker, text, start, end, confidence
@@ -37,14 +29,16 @@ async def translate_utterances(utterances: List[Dict[str, Any]]) -> List[Dict[st
         logger.warning("No utterances to translate")
         return utterances
     
-    prompt = f"""Your task is to translate the given text into English while preserving the original meaning, tone, and intent as faithfully as possible.
+    texts = [u["text"] for u in utterances]
+    
+    prompt = f"""Your task is to translate the given texts into English while preserving the original meaning, tone, and intent as faithfully as possible.
 
 CORE PRINCIPLE:
 - Preserve meaning and intent exactly, while allowing minimal correction of obvious transcription errors.
 
 CONTEXT:
-- The input text comes from automatic speech transcription (ASR).
-- It may contain minor errors such as misheard words, repeated words, or incorrect terms.
+- The input texts come from automatic speech transcription (ASR).
+- They may contain minor errors such as misheard words, repeated words, or incorrect terms.
 
 GUIDELINES:
 - Do NOT paraphrase or summarize.
@@ -59,17 +53,18 @@ ERROR HANDLING (IMPORTANT):
 - When unsure, prefer the closest reasonable meaning rather than a literal but incorrect translation.
 
 STRUCTURE:
-- Translate each input segment independently.
-- Do NOT merge or split segments.
+- Translate each input text independently.
+- Do NOT merge or split texts.
 - Preserve ordering and structure exactly.
+- Return exactly {len(texts)} translated texts matching the input order.
 
 AMBIGUITY HANDLING:
 - Resolve ambiguity using surrounding context when possible.
 - Avoid literal translations that break meaning.
 
-Translate this to English:
+Translate these texts to English:
 
-{utterances}"""
+{texts}"""
     
     messages = [
         {
@@ -89,7 +84,13 @@ Translate this to English:
             schema_model=TranslationResponse,
         )
         
-        translated_utterances = [u.model_dump() for u in result.utterances]
+        translated_texts = result.translated_texts
+        
+        translated_utterances = []
+        for original, translated_text in zip(utterances, translated_texts):
+            utterance = original.copy()
+            utterance["text"] = translated_text
+            translated_utterances.append(utterance)
         
         logger.info(f"Successfully translated {len(translated_utterances)} utterances")
         
