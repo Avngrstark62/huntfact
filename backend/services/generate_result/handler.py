@@ -29,11 +29,19 @@ async def handle_generate_result(job_id: str, job_state: dict) -> Tuple[dict, Op
     
     logger.info(f"Generating result for job_id: {job_id}")
     
-    result = await generate_result(items, utterances_english)
-    
-    job_state["result"] = result
-    
-    logger.info(f"Result generation completed for job_id: {job_id}")
+    try:
+        result = await generate_result(items, utterances_english)
+        
+        if not result:
+            logger.error(f"No result generated for job_id: {job_id}")
+            return job_state, None
+        
+        job_state["result"] = result
+        
+        logger.info(f"Result generation completed for job_id: {job_id}")
+    except Exception as e:
+        logger.error(f"Error generating result for job_id: {job_id}: {str(e)}", exc_info=True)
+        return job_state, None
     
     task = TaskMessage(
         job_id=job_id,

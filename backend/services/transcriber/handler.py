@@ -1,4 +1,5 @@
 from typing import Tuple, Optional
+import base64
 from logging_config import get_logger
 from services.transcriber.assemblyai import transcribe_audio
 from rmq.schemas import TaskMessage
@@ -23,11 +24,11 @@ async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optiona
     """
     logger.info(f"Starting transcription for job: {job_id}")
     
-    # Get audio bytes and format from state
-    audio_bytes = job_state.get("audio_bytes")
+    # Get audio bytes (base64 encoded) and format from state
+    audio_bytes_b64 = job_state.get("audio_bytes")
     audio_format = job_state.get("audio_format")
     
-    if not audio_bytes:
+    if not audio_bytes_b64:
         logger.error(f"No audio_bytes found in job state for job_id: {job_id}")
         return job_state, None
     
@@ -36,6 +37,13 @@ async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optiona
         return job_state, None
     
     logger.info(f"Transcribing audio for job_id: {job_id}")
+    
+    # Decode audio from base64
+    try:
+        audio_bytes = base64.b64decode(audio_bytes_b64)
+    except Exception as e:
+        logger.error(f"Failed to decode audio bytes for job_id: {job_id}: {str(e)}", exc_info=True)
+        return job_state, None
     
     # Transcribe audio
     result = await transcribe_audio(audio_bytes, audio_format)
@@ -49,8 +57,9 @@ async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optiona
     
     if not result:
         logger.error(f"Transcription failed for job_id: {job_id}")
-    else:
-        logger.info(f"Transcription completed for job_id: {job_id}")
+        return job_state, None
+    
+    logger.info(f"Transcription completed for job_id: {job_id}")
     
     # Create translation task
     task = TaskMessage(

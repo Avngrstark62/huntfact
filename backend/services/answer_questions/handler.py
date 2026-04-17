@@ -23,11 +23,15 @@ async def handle_answer_questions(job_id: str, job_state: dict) -> Tuple[dict, O
     
     logger.info(f"Answering questions for {len(items)} items for job_id: {job_id}")
     
-    items_with_answers = await answer_questions(items)
-    
-    job_state["items"] = items_with_answers
-    
-    logger.info(f"Question answering completed for job_id: {job_id}")
+    try:
+        items_with_answers = await answer_questions(items)
+        
+        job_state["items"] = items_with_answers
+        
+        logger.info(f"Question answering completed for job_id: {job_id}")
+    except Exception as e:
+        logger.error(f"Error answering questions for job_id: {job_id}: {str(e)}", exc_info=True)
+        return job_state, None
     
     task = TaskMessage(
         job_id=job_id,

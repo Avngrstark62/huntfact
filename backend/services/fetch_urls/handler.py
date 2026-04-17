@@ -39,24 +39,28 @@ async def handle_fetch_urls(job_id: str, job_state: dict) -> Tuple[dict, Optiona
     
     logger.info(f"Fetching URLs for {len(queries)} queries for job_id: {job_id}")
     
-    # Fetch URLs for all queries
-    urls_results = await fetch_urls_for_queries(queries)
-    
-    # Create a mapping of query to urls
-    query_to_urls = {result["query"]: result["urls"] for result in urls_results}
-    
-    # Update items with URLs
-    for item in items:
-        query = item.get("query")
-        if query in query_to_urls:
-            item["urls"] = query_to_urls[query]
-        else:
-            item["urls"] = []
-    
-    # Update job state with items that now have URLs
-    job_state["items"] = items
-    
-    logger.info(f"URL fetching completed for job_id: {job_id}")
+    try:
+        # Fetch URLs for all queries
+        urls_results = await fetch_urls_for_queries(queries)
+        
+        # Create a mapping of query to urls
+        query_to_urls = {result["query"]: result["urls"] for result in urls_results}
+        
+        # Update items with URLs
+        for item in items:
+            query = item.get("query")
+            if query in query_to_urls:
+                item["urls"] = query_to_urls[query]
+            else:
+                item["urls"] = []
+        
+        # Update job state with items that now have URLs
+        job_state["items"] = items
+        
+        logger.info(f"URL fetching completed for job_id: {job_id}")
+    except Exception as e:
+        logger.error(f"Error fetching URLs for job_id: {job_id}: {str(e)}", exc_info=True)
+        return job_state, None
     
     # Create next task for selecting URLs
     task = TaskMessage(

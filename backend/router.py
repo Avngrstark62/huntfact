@@ -57,8 +57,8 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
         job_id = str(uuid.uuid4())
         logger.info(f"Generated job_id: {job_id}")
         
-        if existing_hunt:
-            logger.info(f"Hunt already exists for video: {request.video_link}")
+        if existing_hunt and existing_hunt.result:
+            logger.info(f"Hunt already exists for video: {request.video_link} and has result")
 
             job_state = {
                 "hunt_id": existing_hunt.id,
@@ -73,6 +73,26 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
                 job_id=job_id,
                 step=NOTIFY,
                 priority=12,
+                payload={}
+            )
+        elif existing_hunt:
+            logger.info(f"Hunt already exists for video: {request.video_link} but no result, reprocessing")
+            
+            new_hunt = existing_hunt
+            
+            job_state = {
+                "hunt_id": new_hunt.id,
+                "fcm_token": request.fcm_token,
+                "cdn_link": str(request.cdn_link),
+            }
+            
+            set_job_data(job_id, job_state, ttl=86400)
+            logger.info(f"Initialized job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
+            
+            task = TaskMessage(
+                job_id=job_id,
+                step=EXTRACT_AUDIO,
+                priority=1,
                 payload={}
             )
         else:

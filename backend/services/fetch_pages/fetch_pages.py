@@ -5,14 +5,14 @@ from services.page_scraper import scrape_page
 logger = get_logger("services.fetch_pages.fetch_pages")
 
 
-async def fetch_pages(selected_urls_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+async def fetch_pages(selected_urls_list: List[str]) -> Dict[str, Any]:
     """
     Fetch and scrape pages from selected URLs.
     
     Scrapes content from all selected URLs across all items.
     
     Args:
-        selected_urls_list: List of URL dictionaries with title, href, body
+        selected_urls_list: List of URL strings
     
     Returns:
         Dictionary with pages data: {"pages_data": [...]}
@@ -21,8 +21,7 @@ async def fetch_pages(selected_urls_list: List[Dict[str, Any]]) -> Dict[str, Any
     
     pages_data = []
     
-    for url_item in selected_urls_list:
-        href = url_item.get("href")
+    for href in selected_urls_list:
         if not href:
             continue
             
@@ -33,7 +32,6 @@ async def fetch_pages(selected_urls_list: List[Dict[str, Any]]) -> Dict[str, Any
             if result:
                 pages_data.append({
                     "url": href,
-                    "title": url_item.get("title", ""),
                     "scraped_content": result
                 })
                 logger.info(f"Successfully scraped: {href}")

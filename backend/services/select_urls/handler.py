@@ -23,10 +23,14 @@ async def handle_select_urls(job_id: str, job_state: dict) -> Tuple[dict, Option
     
     logger.info(f"Selecting URLs for {len(items)} items for job_id: {job_id}")
     
-    items_with_selected = await select_urls(items)
-    job_state["items"] = items_with_selected
-    
-    logger.info(f"URL selection completed for job_id: {job_id}")
+    try:
+        items_with_selected = await select_urls(items)
+        job_state["items"] = items_with_selected
+        
+        logger.info(f"URL selection completed for job_id: {job_id}")
+    except Exception as e:
+        logger.error(f"Error selecting URLs for job_id: {job_id}: {str(e)}", exc_info=True)
+        return job_state, None
     
     task = TaskMessage(
         job_id=job_id,

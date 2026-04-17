@@ -1,4 +1,5 @@
 from typing import Tuple, Optional
+import base64
 from logging_config import get_logger
 from services.audio_extractor.audio_extractor import extract_audio
 from rmq.schemas import TaskMessage
@@ -36,16 +37,21 @@ async def handle_extract_audio(job_id: str, job_state: dict) -> Tuple[dict, Opti
     result = await extract_audio(cdn_link)
     
     # Update job state with audio extraction result
-    job_state["audio_bytes"] = result.get("audio")
+    audio = result.get("audio")
+    if audio:
+        job_state["audio_bytes"] = base64.b64encode(audio).decode("utf-8")
+    else:
+        job_state["audio_bytes"] = None
     job_state["audio_format"] = result.get("format")
     job_state["audio_error"] = result.get("error")
     
     if result.get("error"):
         logger.error(f"Audio extraction failed for job_id: {job_id}, error: {result.get('error')}")
-    else:
-        logger.info(f"Audio extraction completed for job_id: {job_id}")
+        return job_state, None
     
-    # Create transcription task
+    logger.info(f"Audio extraction completed for job_id: {job_id}")
+    
+    # Create transcription task only on success
     task = TaskMessage(
         job_id=job_id,
         step=TRANSCRIBE,

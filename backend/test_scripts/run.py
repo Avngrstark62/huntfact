@@ -12,9 +12,11 @@ start_time = time.time()
 # url = "https://www.instagram.com/reel/DWWNjCajCcK"
 # url = "https://www.instagram.com/reel/DUFL0xADGDL"
 # url = "https://www.instagram.com/reel/DWBrc8Ij6si"
-url = "https://www.instagram.com/reel/DTVPPD_EtOJ"
+# url = "https://www.instagram.com/reel/DTVPPD_EtOJ"
+url = "https://www.instagram.com/reel/DXHQ-DLE5Ye"
 
 cdn_link = get_reel_video_url(url)
+print("cdn_link:", cdn_link)
 elapsed = (time.time() - start_time) * 1000
 print(f"✓ get_reel_video_url took {elapsed:.2f}ms")
 
