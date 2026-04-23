@@ -1,0 +1,68 @@
+---
+description: Backend Python standards for Huntfact services
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend Standards
+
+## 1) API and app lifecycle (`app.py`, `main.py`, `router.py`, `schemas.py`, `health.py`)
+
+- Keep API contracts in Pydantic models (`schemas.py`) and use them in route decorators.
+- Keep startup/shutdown wiring in `app.py` (DB, RabbitMQ, Firebase, Chroma init/cleanup) with per-dependency `try/except` and health flags.
+- Keep route handlers focused on request validation, orchestration, and response shaping; push heavy logic to services/infrastructure modules.
+- Use health guard pattern (`check_health_dependency`) for critical endpoints and return explicit 503 behavior when dependencies are unhealthy.
+
+## 2) Pipeline service handlers (`services/*/handler.py`)
+
+- Follow current signature: `async def handle_<step>(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]`.
+- Read state with `job_state.get(...)`; if required input is missing, log and return `(job_state, None)`.
+- Keep handlers orchestration-only: call service function, update state, create next `TaskMessage`.
+- Build next tasks with RMQ constants and explicit priorities (`payload={}` unless needed).
+- On recoverable handler-level failures, log with context and return `(job_state, None)` instead of crashing the pipeline.
+
+## 3) Core service logic (`services/*/<service>.py`)
+
+- Keep business logic in service modules (LLM prompts, scraping, selection, embeddings, result synthesis), not in handlers.
+- Preserve existing state/data shapes (`items`, `selected_urls`, `pages_data`, `result`) to keep downstream steps compatible.
+- Use structured outputs with Pydantic schemas for LLM tasks that expect JSON-shaped responses.
+- Add focused validation and sensible fallback behavior (for example: empty lists, passthrough behavior, partial processing).
+
+## 4) Worker + RabbitMQ (`worker.py`, `rmq/*`)
+
+- Keep `worker.py` as central step router using `rmq.constants` and explicit handler mapping/order.
+- Preserve Redis-backed state lifecycle: read before step, update after step, publish next task when provided.
+- Keep RabbitMQ usage via shared client (`rmq.connection.rabbitmq`) and channel QoS/prefetch from settings.
+- Use `TaskMessage` (`rmq/schemas.py`) as the only queue payload contract.
+
+## 5) Redis job state (`rmq_redis/*`)
+
+- Access Redis through helper functions (`set_job_data`, `get_job_data`, `update_job_data`) instead of scattering raw Redis ops.
+- Preserve TTL semantics on updates (current helper behavior keeps original expiration).
+- Keep job keys in `job:{job_id}` format and JSON-serializable state payloads.
+
+## 6) Database layer (`db/*`, `services/save_result_to_db/*`)
+
+- Keep DB session/engine ownership in `db/database.py` and reuse the singleton `db`.
+- Keep CRUD access through `db` methods (`create_hunt`, `get_hunt_by_video_link`, `update_hunt_result`) to maintain one data-access pattern.
+- Preserve commit/rollback safety around writes and close sessions after use.
+
+## 7) External integrations (LLM, Chroma, Firebase, FFmpeg, web search)
+
+- Keep integration clients centralized (`llm.py`, `chroma_client.py`, `firebase_config.py`) and reused as singletons/wrappers.
+- Read runtime settings from `config.settings`; do not hardcode secrets or env-specific endpoints in new code.
+- For external calls, keep explicit logging and defensive error handling (`exc_info=True` for exception paths).
+- Preserve async-compatible behavior where already async; if using blocking libs, isolate clearly and fail safely.
+
+## 8) Logging, naming, and docs
+
+- Use module-scoped loggers from `get_logger(...)` with hierarchical names (for example `services.fetch_urls.handler`).
+- Log step start/end/progress at `info`; include identifiers like `job_id`/`step` in messages.
+- Keep naming conventions: snake_case for functions/state keys, uppercase for RMQ step constants.
+- Keep concise docstrings, usually with `Args` and `Returns` for non-trivial functions.
+
+## 9) Backend test scripts (`backend/test_scripts/*`)
+
+- Match the existing script-style async test approach for service/pipeline checks.
+- When behavior changes in a step/service, update or add a nearby test script that can be run directly.
+- Favor realistic payload fixtures that mirror actual `job_state` and service input/output shapes.
