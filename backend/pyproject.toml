@@ -21,6 +21,7 @@ dependencies = [
     "openai>=2.30.0",
     "primp>=1.2.2",
     "psycopg2>=2.9.11",
+    "python-jose[cryptography]>=3.5.0",
     "pydantic-settings>=2.13.1",
     "python-dotenv>=1.2.2",
     "redis>=5.0.0",

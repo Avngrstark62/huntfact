@@ -7,6 +7,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     database_url: str
+    supabase_url: str = ""
+    supabase_jwks_url: str = ""
+    supabase_issuer: str = ""
+    supabase_audience: str | None = None
 
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     queue_name: str = "task_queue"

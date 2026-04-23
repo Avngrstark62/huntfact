@@ -1,9 +1,11 @@
 package com.example.android
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,15 +21,21 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.android.ui.theme.AndroidTheme
+import com.example.android.utils.AuthSessionManager
 import com.example.android.utils.FcmTokenManager
+import com.example.android.utils.SupabaseClientProvider
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -43,6 +51,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        SupabaseClientProvider.handleAuthDeeplink(intent) {
+            lifecycleScope.launch {
+                AuthSessionManager.refreshAuthState()
+            }
+        }
+        lifecycleScope.launch {
+            AuthSessionManager.refreshAuthState()
+        }
         
         requestNotificationPermission()
         
@@ -53,6 +69,15 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        SupabaseClientProvider.handleAuthDeeplink(intent) {
+            lifecycleScope.launch {
+                AuthSessionManager.refreshAuthState()
             }
         }
     }
@@ -89,6 +114,13 @@ fun MainScreen(modifier: Modifier = Modifier) {
     val cdnLink = remember { mutableStateOf("") }
     val isLoading = remember { mutableStateOf(false) }
     val resultMessage = remember { mutableStateOf("") }
+    val authMessage = remember { mutableStateOf("") }
+    val authScope = rememberCoroutineScope()
+    val isAuthenticated by AuthSessionManager.isAuthenticated.collectAsState()
+
+    LaunchedEffect(Unit) {
+        AuthSessionManager.refreshAuthState()
+    }
 
     Column(
         modifier = modifier
@@ -96,6 +128,52 @@ fun MainScreen(modifier: Modifier = Modifier) {
             .padding(16.dp)
     ) {
         Text("Fact Check - HuntFact")
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (!isAuthenticated) {
+            Button(
+                onClick = {
+                    authScope.launch {
+                        try {
+                            SupabaseClientProvider.signInWithGoogle()
+                            authMessage.value = "Google sign-in started"
+                        } catch (e: Exception) {
+                            Log.e("MainScreen", "Google sign-in failed", e)
+                            authMessage.value = "Sign-in failed. Please try again."
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Sign in with Google")
+            }
+        }
+
+        if (isAuthenticated) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Signed in")
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    authScope.launch {
+                        val signedOut = AuthSessionManager.signOut()
+                        authMessage.value = if (signedOut) {
+                            "Signed out"
+                        } else {
+                            "Sign-out failed. Please try again."
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Sign out")
+            }
+        }
+
+        if (authMessage.value.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(authMessage.value)
+        }
         
         Spacer(modifier = Modifier.height(16.dp))
         

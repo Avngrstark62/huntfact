@@ -8,10 +8,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import androidx.work.workDataOf
 import com.example.android.extraction.ReelExtractor
 import com.example.android.network.RetrofitClient
 import com.example.android.network.StartHuntRequest
+import com.example.android.utils.AuthSessionManager
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
 
@@ -46,6 +46,12 @@ class ReelProcessingWorker(
             Log.d(TAG, "🎬 CDN VIDEO URL: $cdnUrl")
             Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+            if (!AuthSessionManager.hasValidSession()) {
+                Log.e(TAG, "❌ Missing Supabase session, user needs to sign in again")
+                showSignInRequiredNotification()
+                return Result.failure()
+            }
+
             // Get FCM token
             Log.d(TAG, "🔐 Fetching FCM token...")
             val fcmToken = try {
@@ -61,7 +67,7 @@ class ReelProcessingWorker(
             Log.d(TAG, "📤 Sending reel to HuntFact backend...")
             val apiService = RetrofitClient.getApiService()
             val cleanedReelUrl = ReelExtractor.cleanInstagramUrl(reelUrl)
-            val request = com.example.android.network.StartHuntRequest(
+            val request = StartHuntRequest(
                 video_link = cleanedReelUrl,
                 cdn_link = cdnUrl,
                 fcm_token = fcmToken
@@ -139,9 +145,34 @@ class ReelProcessingWorker(
         Log.e(TAG, "📲 Error notification shown: Generic error message")
     }
 
+    private fun showSignInRequiredNotification() {
+        val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "reel_auth_channel"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "Authentication Required",
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(applicationContext, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Sign in required")
+            .setContentText("Please sign in with Google again to continue fact-checking reels.")
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(SIGN_IN_REQUIRED_NOTIFICATION_ID, notification)
+        Log.e(TAG, "📲 Error notification shown: Sign-in required")
+    }
+
     companion object {
         private const val TAG = "ReelProcessingWorker"
         private const val SUCCESS_NOTIFICATION_ID = 101
         private const val ERROR_NOTIFICATION_ID = 102
+        private const val SIGN_IN_REQUIRED_NOTIFICATION_ID = 103
     }
 }
