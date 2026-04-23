@@ -21,6 +21,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,7 +51,14 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        SupabaseClientProvider.handleAuthDeeplink(intent)
+        SupabaseClientProvider.handleAuthDeeplink(intent) {
+            lifecycleScope.launch {
+                AuthSessionManager.refreshAuthState()
+            }
+        }
+        lifecycleScope.launch {
+            AuthSessionManager.refreshAuthState()
+        }
         
         requestNotificationPermission()
         
@@ -65,7 +75,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        SupabaseClientProvider.handleAuthDeeplink(intent)
+        SupabaseClientProvider.handleAuthDeeplink(intent) {
+            lifecycleScope.launch {
+                AuthSessionManager.refreshAuthState()
+            }
+        }
     }
 
     private fun requestNotificationPermission() {
@@ -102,6 +116,11 @@ fun MainScreen(modifier: Modifier = Modifier) {
     val resultMessage = remember { mutableStateOf("") }
     val authMessage = remember { mutableStateOf("") }
     val authScope = rememberCoroutineScope()
+    val isAuthenticated by AuthSessionManager.isAuthenticated.collectAsState()
+
+    LaunchedEffect(Unit) {
+        AuthSessionManager.refreshAuthState()
+    }
 
     Column(
         modifier = modifier
@@ -111,24 +130,26 @@ fun MainScreen(modifier: Modifier = Modifier) {
         Text("Fact Check - HuntFact")
         Spacer(modifier = Modifier.height(16.dp))
 
-        Button(
-            onClick = {
-                authScope.launch {
-                    try {
-                        SupabaseClientProvider.signInWithGoogle()
-                        authMessage.value = "Google sign-in started"
-                    } catch (e: Exception) {
-                        Log.e("MainScreen", "Google sign-in failed", e)
-                        authMessage.value = "Sign-in failed. Please try again."
+        if (!isAuthenticated) {
+            Button(
+                onClick = {
+                    authScope.launch {
+                        try {
+                            SupabaseClientProvider.signInWithGoogle()
+                            authMessage.value = "Google sign-in started"
+                        } catch (e: Exception) {
+                            Log.e("MainScreen", "Google sign-in failed", e)
+                            authMessage.value = "Sign-in failed. Please try again."
+                        }
                     }
-                }
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Sign in with Google")
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Sign in with Google")
+            }
         }
 
-        if (AuthSessionManager.hasValidSession()) {
+        if (isAuthenticated) {
             Spacer(modifier = Modifier.height(8.dp))
             Text("Signed in")
         }
