@@ -1,13 +1,14 @@
-from typing import Tuple, Optional
+from typing import Optional
 from logging_config import get_logger
 from services.translator.translator import translate_utterances
 from rmq.schemas import TaskMessage
 from rmq.constants import EXTRACT_QUESTIONS_QUERIES
+from rmq_redis import job_repository
 
 logger = get_logger("services.translator.handler")
 
 
-async def handle_translate(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
+async def handle_translate(job_id: str) -> Optional[TaskMessage]:
     """
     Translate utterances to English.
     
@@ -24,19 +25,18 @@ async def handle_translate(job_id: str, job_state: dict) -> Tuple[dict, Optional
     logger.info(f"Starting translation for job: {job_id}")
     
     # Get utterances from state
-    utterances = job_state.get("utterances")
+    utterances = job_repository.get_utterances(job_id)
     
     if not utterances:
         logger.error(f"No utterances found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     logger.info(f"Translating {len(utterances)} utterances for job_id: {job_id}")
     
     # Translate utterances
     translated_utterances = await translate_utterances(utterances)
     
-    # Update job state with translated utterances
-    job_state["utterances_english"] = translated_utterances
+    job_repository.set_utterances_en(job_id, translated_utterances)
     
     logger.info(f"Translation completed for job_id: {job_id}")
     
@@ -48,4 +48,4 @@ async def handle_translate(job_id: str, job_state: dict) -> Tuple[dict, Optional
         payload={}
     )
     
-    return job_state, task
+    return task

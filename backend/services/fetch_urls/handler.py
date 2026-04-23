@@ -1,13 +1,14 @@
-from typing import Tuple, Optional, List, Dict, Any
+from typing import Optional
 from logging_config import get_logger
 from services.fetch_urls.fetch_urls import fetch_urls_for_queries
 from rmq.schemas import TaskMessage
 from rmq.constants import SELECT_URLS
+from rmq_redis import job_repository
 
 logger = get_logger("services.fetch_urls.handler")
 
 
-async def handle_fetch_urls(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
+async def handle_fetch_urls(job_id: str) -> Optional[TaskMessage]:
     """
     Fetch URLs for extracted questions/queries.
     
@@ -23,19 +24,22 @@ async def handle_fetch_urls(job_id: str, job_state: dict) -> Tuple[dict, Optiona
     """
     logger.info(f"Starting URL fetching for job: {job_id}")
     
-    # Get items from state
-    items = job_state.get("items")
+    items = []
+    for item_id in job_repository.iter_item_ids(job_id):
+        item_base = job_repository.get_item_base(job_id, item_id)
+        if item_base:
+            items.append({"item_id": item_id, **item_base})
     
     if not items:
         logger.error(f"No items found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     # Extract queries from items
     queries = [item.get("query") for item in items if item.get("query")]
     
     if not queries:
         logger.error(f"No queries found in items for job_id: {job_id}")
-        return job_state, None
+        return None
     
     logger.info(f"Fetching URLs for {len(queries)} queries for job_id: {job_id}")
     
@@ -46,21 +50,17 @@ async def handle_fetch_urls(job_id: str, job_state: dict) -> Tuple[dict, Optiona
         # Create a mapping of query to urls
         query_to_urls = {result["query"]: result["urls"] for result in urls_results}
         
-        # Update items with URLs
         for item in items:
             query = item.get("query")
             if query in query_to_urls:
-                item["urls"] = query_to_urls[query]
+                job_repository.set_item_urls(job_id, item["item_id"], query_to_urls[query])
             else:
-                item["urls"] = []
-        
-        # Update job state with items that now have URLs
-        job_state["items"] = items
+                job_repository.set_item_urls(job_id, item["item_id"], [])
         
         logger.info(f"URL fetching completed for job_id: {job_id}")
     except Exception as e:
         logger.error(f"Error fetching URLs for job_id: {job_id}: {str(e)}", exc_info=True)
-        return job_state, None
+        return None
     
     # Create next task for selecting URLs
     task = TaskMessage(
@@ -70,4 +70,4 @@ async def handle_fetch_urls(job_id: str, job_state: dict) -> Tuple[dict, Optiona
         payload={}
     )
     
-    return job_state, task
+    return task

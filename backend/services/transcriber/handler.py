@@ -1,14 +1,15 @@
-from typing import Tuple, Optional
+from typing import Optional
 import base64
 from logging_config import get_logger
 from services.transcriber.assemblyai import transcribe_audio
 from rmq.schemas import TaskMessage
 from rmq.constants import TRANSLATE
+from rmq_redis import job_repository
 
 logger = get_logger("services.transcriber.handler")
 
 
-async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
+async def handle_transcribe(job_id: str) -> Optional[TaskMessage]:
     """
     Transcribe the extracted audio.
     
@@ -25,16 +26,19 @@ async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optiona
     logger.info(f"Starting transcription for job: {job_id}")
     
     # Get audio bytes (base64 encoded) and format from state
-    audio_bytes_b64 = job_state.get("audio_bytes")
-    audio_format = job_state.get("audio_format")
+    audio_bytes_b64, audio_format, audio_error = job_repository.get_audio(job_id)
     
     if not audio_bytes_b64:
         logger.error(f"No audio_bytes found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     if not audio_format:
         logger.error(f"No audio_format found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
+
+    if audio_error:
+        logger.error(f"Audio extraction error found for job_id: {job_id}, error: {audio_error}")
+        return None
     
     logger.info(f"Transcribing audio for job_id: {job_id}")
     
@@ -43,21 +47,26 @@ async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optiona
         audio_bytes = base64.b64decode(audio_bytes_b64)
     except Exception as e:
         logger.error(f"Failed to decode audio bytes for job_id: {job_id}: {str(e)}", exc_info=True)
-        return job_state, None
+        return None
     
     # Transcribe audio
     result = await transcribe_audio(audio_bytes, audio_format)
     
-    # Update job state with transcription result
-    job_state["utterances"] = result.get("utterances") if result else []
-    job_state["transcription_language_code"] = result.get("language_code") if result else None
-    job_state["transcription_confidence"] = result.get("confidence") if result else None
-    job_state["transcription_audio_duration"] = result.get("audio_duration") if result else None
-    job_state["transcription_error"] = result.get("error") if result else None
-    
     if not result:
         logger.error(f"Transcription failed for job_id: {job_id}")
-        return job_state, None
+        return None
+
+    job_repository.set_utterances(job_id, result.get("utterances") or [])
+    job_repository.set_meta_fields(
+        job_id,
+        {
+            "transcription_language_code": result.get("language_code"),
+            "transcription_confidence": result.get("confidence"),
+            "transcription_audio_duration": result.get("audio_duration"),
+            "transcription_error": result.get("error"),
+        },
+    )
+    job_repository.delete_audio(job_id)
     
     logger.info(f"Transcription completed for job_id: {job_id}")
     
@@ -69,4 +78,4 @@ async def handle_transcribe(job_id: str, job_state: dict) -> Tuple[dict, Optiona
         payload={}
     )
     
-    return job_state, task
+    return task

@@ -1,13 +1,14 @@
-from typing import Tuple, Optional
+from typing import Optional
 from logging_config import get_logger
 from services.generate_result.generate_result import generate_result
 from rmq.schemas import TaskMessage
 from rmq.constants import SAVE_RESULT_TO_DB
+from rmq_redis import job_repository
 
 logger = get_logger("services.generate_result.handler")
 
 
-async def handle_generate_result(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
+async def handle_generate_result(job_id: str) -> Optional[TaskMessage]:
     """
     Generate final result.
     
@@ -16,16 +17,16 @@ async def handle_generate_result(job_id: str, job_state: dict) -> Tuple[dict, Op
     """
     logger.info(f"Starting result generation for job: {job_id}")
     
-    items = job_state.get("items")
-    utterances_english = job_state.get("utterances_english")
+    items = job_repository.get_composed_items(job_id)
+    utterances_english = job_repository.get_utterances_en(job_id)
     
     if not items:
         logger.error(f"No items found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     if not utterances_english:
         logger.error(f"No utterances_english found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     logger.info(f"Generating result for job_id: {job_id}")
     
@@ -34,14 +35,14 @@ async def handle_generate_result(job_id: str, job_state: dict) -> Tuple[dict, Op
         
         if not result:
             logger.error(f"No result generated for job_id: {job_id}")
-            return job_state, None
+            return None
         
-        job_state["result"] = result
+        job_repository.set_result(job_id, result)
         
         logger.info(f"Result generation completed for job_id: {job_id}")
     except Exception as e:
         logger.error(f"Error generating result for job_id: {job_id}: {str(e)}", exc_info=True)
-        return job_state, None
+        return None
     
     task = TaskMessage(
         job_id=job_id,
@@ -50,4 +51,4 @@ async def handle_generate_result(job_id: str, job_state: dict) -> Tuple[dict, Op
         payload={}
     )
     
-    return job_state, task
+    return task

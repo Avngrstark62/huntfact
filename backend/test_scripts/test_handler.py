@@ -4,8 +4,7 @@ setup_logging()
 import asyncio
 import sys
 import time
-import json
-from rmq_redis import get_job_data
+from rmq_redis import job_repository
 from rmq.constants import (
     EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES,
     FETCH_URLS, SELECT_URLS, FETCH_PAGES, SAVE_DATA_TO_RAG,
@@ -46,8 +45,7 @@ async def test_handler(job_id: str, service_name: str):
         print(f"Available services: {', '.join(HANDLERS.keys())}")
         return
     
-    job_state = get_job_data(job_id)
-    if job_state is None:
+    if not job_repository.job_exists(job_id):
         print(f"Error: Job state not found in Redis for job_id: {job_id}")
         return
     
@@ -55,7 +53,7 @@ async def test_handler(job_id: str, service_name: str):
     
     start_time = time.time()
     try:
-        result = await handler(job_id, job_state)
+        await handler(job_id)
         elapsed = time.time() - start_time
         
         print(f"Status: SUCCESS | Latency: {elapsed:.2f}s")

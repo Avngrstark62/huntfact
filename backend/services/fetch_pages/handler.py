@@ -1,14 +1,14 @@
-from typing import Tuple, Optional
+from typing import Optional
 from logging_config import get_logger
 from services.fetch_pages.fetch_pages import fetch_pages
 from rmq.schemas import TaskMessage
 from rmq.constants import SAVE_DATA_TO_RAG
-from rmq_redis import update_job_data
+from rmq_redis import job_repository
 
 logger = get_logger("services.fetch_pages.handler")
 
 
-async def handle_fetch_pages(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
+async def handle_fetch_pages(job_id: str) -> Optional[TaskMessage]:
     """
     Fetch and scrape pages from selected URLs.
     
@@ -17,11 +17,11 @@ async def handle_fetch_pages(job_id: str, job_state: dict) -> Tuple[dict, Option
     """
     logger.info(f"Starting page fetching for job: {job_id}")
     
-    items = job_state.get("items")
+    items = job_repository.get_composed_items(job_id)
     
     if not items:
         logger.error(f"No items found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     selected_urls_list = []
     for item in items:
@@ -30,7 +30,7 @@ async def handle_fetch_pages(job_id: str, job_state: dict) -> Tuple[dict, Option
     
     if not selected_urls_list:
         logger.error(f"No selected URLs found for job_id: {job_id}")
-        return job_state, None
+        return None
     
     logger.info(f"Fetching {len(selected_urls_list)} pages for job_id: {job_id}")
     
@@ -40,15 +40,14 @@ async def handle_fetch_pages(job_id: str, job_state: dict) -> Tuple[dict, Option
         
         if not pages_data:
             logger.error(f"No pages data returned for job_id: {job_id}")
-            return job_state, None
+            return None
         
-        job_state["pages_data"] = pages_data
-        update_job_data(job_id, job_state)
+        job_repository.set_pages(job_id, pages_data)
         
         logger.info(f"Page fetching completed for job_id: {job_id}")
     except Exception as e:
         logger.error(f"Error fetching pages for job_id: {job_id}: {str(e)}", exc_info=True)
-        return job_state, None
+        return None
     
     task = TaskMessage(
         job_id=job_id,
@@ -57,4 +56,4 @@ async def handle_fetch_pages(job_id: str, job_state: dict) -> Tuple[dict, Option
         payload={}
     )
     
-    return job_state, task
+    return task
