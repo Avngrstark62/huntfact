@@ -8,7 +8,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 object RetrofitClient {
     private var apiService: ApiService? = null
 
-    fun getApiService(baseUrl: String = "http://172.23.6.89:8000"): ApiService {
+    fun getApiService(baseUrl: String = "http://172.23.1.253:8000"): ApiService {
         if (apiService == null) {
             val okHttpClient = OkHttpClient.Builder()
                 .addInterceptor { chain ->

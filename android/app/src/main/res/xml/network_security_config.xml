@@ -2,7 +2,7 @@
 <network-security-config>
     <!-- Allow cleartext (HTTP) traffic only for local development IP -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">172.23.6.89</domain>
+        <domain includeSubdomains="true">172.23.1.253</domain>
     </domain-config>
 
     <!-- All other domains require HTTPS -->
