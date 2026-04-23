@@ -32,4 +32,14 @@ object AuthSessionManager {
     suspend fun hasValidSession(): Boolean {
         return refreshAuthState()
     }
+
+    suspend fun signOut(): Boolean {
+        return try {
+            SupabaseClientProvider.client.auth.signOut()
+            _isAuthenticated.value = false
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
 }

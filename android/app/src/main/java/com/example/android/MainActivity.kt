@@ -152,6 +152,22 @@ fun MainScreen(modifier: Modifier = Modifier) {
         if (isAuthenticated) {
             Spacer(modifier = Modifier.height(8.dp))
             Text("Signed in")
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    authScope.launch {
+                        val signedOut = AuthSessionManager.signOut()
+                        authMessage.value = if (signedOut) {
+                            "Signed out"
+                        } else {
+                            "Sign-out failed. Please try again."
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Sign out")
+            }
         }
 
         if (authMessage.value.isNotEmpty()) {
