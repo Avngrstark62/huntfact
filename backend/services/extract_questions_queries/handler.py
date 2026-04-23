@@ -1,13 +1,14 @@
-from typing import Tuple, Optional
+from typing import Optional
 from logging_config import get_logger
 from services.extract_questions_queries.extract_questions_queries import extract_questions_queries
 from rmq.schemas import TaskMessage
 from rmq.constants import FETCH_URLS
+from rmq_redis import job_repository
 
 logger = get_logger("services.extract_questions_queries.handler")
 
 
-async def handle_extract_questions_queries(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
+async def handle_extract_questions_queries(job_id: str) -> Optional[TaskMessage]:
     """
     Extract questions and queries from English utterances.
     
@@ -24,19 +25,18 @@ async def handle_extract_questions_queries(job_id: str, job_state: dict) -> Tupl
     logger.info(f"Starting question/query extraction for job: {job_id}")
     
     # Get utterances_english from state
-    utterances_english = job_state.get("utterances_english")
+    utterances_english = job_repository.get_utterances_en(job_id)
     
     if not utterances_english:
         logger.error(f"No utterances_english found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     logger.info(f"Extracting questions/queries from {len(utterances_english)} English utterances for job_id: {job_id}")
     
     # Extract questions and queries
     items = await extract_questions_queries(utterances_english)
     
-    # Update job state with extracted items
-    job_state["items"] = items
+    job_repository.set_items_base(job_id, items)
     
     logger.info(f"Question/query extraction completed for job_id: {job_id}, extracted {len(items)} items")
     
@@ -48,4 +48,4 @@ async def handle_extract_questions_queries(job_id: str, job_state: dict) -> Tupl
         payload={}
     )
     
-    return job_state, task
+    return task

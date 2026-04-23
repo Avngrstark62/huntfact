@@ -1,69 +1,34 @@
 # Redis Module
 
-This module provides a simple interface for storing and retrieving job data in Redis.
+This module stores pipeline state using split Redis keys under `job:{job_id}:...`.
 
-## Quick Usage
+## Key Model
 
-### Basic Setup
+- `job:{id}:meta` (HASH): control fields (`hunt_id`, `fcm_token`, `cdn_link`, status, errors, timestamps)
+- `job:{id}:steps` (HASH): per-step state (`pending|running|done|failed`)
+- `job:{id}:keys` (SET): registry for all keys created for the job
+- `job:{id}:utterances`, `job:{id}:utterances_en`, `job:{id}:result` (STRING JSON)
+- `job:{id}:items:index` (LIST) + per-item fragments (`items:base:*`, `items:urls:*`, `items:selected:*`, `items:answer:*`)
+- `job:{id}:artifact:*` keys for transient audio and pages
 
-```python
-from redis import set_job_data, get_job_data, delete_job_data
-```
-
-### Store Job Data
-
-```python
-job_id = "my-job-123"
-job_data = {
-    "items": [
-        {
-            "id": "q1",
-            "question": "...",
-            "query": "...",
-            "urls": [],
-            "chunks": [],
-            "answer": None
-        }
-    ]
-}
-
-# Store with no expiration
-set_job_data(job_id, job_data)
-
-# Or store with 24-hour expiration (86400 seconds)
-set_job_data(job_id, job_data, ttl=86400)
-```
-
-### Retrieve Job Data
+## Usage
 
 ```python
-data = get_job_data("my-job-123")
-if data:
-    print(data["items"])
+from rmq_redis import job_repository
+
+job_repository.init_job(
+    job_id="my-job-123",
+    meta={"hunt_id": 1, "fcm_token": "token", "cdn_link": "https://cdn.example/video.mp4"},
+    ttl=86400,
+)
+
+job_repository.set_utterances("my-job-123", [{"text": "example"}])
+job_repository.set_items_base("my-job-123", [{"question": "Q1", "query": "search query"}])
+items = job_repository.get_composed_items("my-job-123")
+result = job_repository.get_result("my-job-123")
 ```
 
-### Update Job Data
+## Ownership
 
-```python
-data = get_job_data("my-job-123")
-data["items"][0]["urls"].append("https://example.com")
-set_job_data("my-job-123", data)  # Save updated data
-```
-
-### Delete Job Data
-
-```python
-delete_job_data("my-job-123")
-```
-
-## Configuration
-
-By default, the client connects to `localhost:6379`. To use a different Redis server:
-
-```python
-from redis import get_redis_client
-
-client = get_redis_client(host="your-redis-host", port=6379)
-```
-
-Set these via environment variables in your app config if using a remote server.
+Worker owns only orchestration fields (`meta.status`, `meta.current_step`, error fields, and `steps.*`).
+Handlers own pipeline payload keys for their assigned step and should use repository getters/setters only.

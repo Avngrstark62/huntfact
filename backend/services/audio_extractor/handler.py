@@ -1,14 +1,15 @@
-from typing import Tuple, Optional
+from typing import Optional
 import base64
 from logging_config import get_logger
 from services.audio_extractor.audio_extractor import extract_audio
 from rmq.schemas import TaskMessage
 from rmq.constants import TRANSCRIBE
+from rmq_redis import job_repository
 
 logger = get_logger("services.audio_extractor.handler")
 
 
-async def handle_extract_audio(job_id: str, job_state: dict) -> Tuple[dict, Optional[TaskMessage]]:
+async def handle_extract_audio(job_id: str) -> Optional[TaskMessage]:
     """
     Extract audio from URL stored in job state.
     
@@ -24,12 +25,12 @@ async def handle_extract_audio(job_id: str, job_state: dict) -> Tuple[dict, Opti
     """
     logger.info(f"Starting audio extraction for job: {job_id}")
     
-    # Get cdn_link from state
-    cdn_link = job_state.get("cdn_link")
+    meta = job_repository.get_meta_fields(job_id, ["cdn_link"])
+    cdn_link = meta.get("cdn_link")
     
     if not cdn_link:
         logger.error(f"No cdn_link found in job state for job_id: {job_id}")
-        return job_state, None
+        return None
     
     logger.info(f"Extracting audio from CDN link for job_id: {job_id}")
     
@@ -38,16 +39,17 @@ async def handle_extract_audio(job_id: str, job_state: dict) -> Tuple[dict, Opti
     
     # Update job state with audio extraction result
     audio = result.get("audio")
-    if audio:
-        job_state["audio_bytes"] = base64.b64encode(audio).decode("utf-8")
-    else:
-        job_state["audio_bytes"] = None
-    job_state["audio_format"] = result.get("format")
-    job_state["audio_error"] = result.get("error")
+    audio_bytes_b64 = base64.b64encode(audio).decode("utf-8") if audio else None
+    job_repository.set_audio(
+        job_id,
+        audio_bytes_b64,
+        result.get("format"),
+        result.get("error"),
+    )
     
     if result.get("error"):
         logger.error(f"Audio extraction failed for job_id: {job_id}, error: {result.get('error')}")
-        return job_state, None
+        return None
     
     logger.info(f"Audio extraction completed for job_id: {job_id}")
     
@@ -59,4 +61,4 @@ async def handle_extract_audio(job_id: str, job_state: dict) -> Tuple[dict, Opti
         payload={}
     )
     
-    return job_state, task
+    return task

@@ -11,8 +11,8 @@ from rmq.publisher import publish_task
 from rmq.schemas import TaskMessage
 from rmq.constants import EXTRACT_AUDIO, NOTIFY
 from health import is_system_healthy, check_health_dependency
-from rmq_redis import set_job_data
 from auth.supabase_auth import AuthenticatedUser, get_authenticated_user
+from rmq_redis import job_repository
 
 logger = get_logger("router")
 router = APIRouter()
@@ -71,14 +71,16 @@ async def start_hunt(
         if existing_hunt and existing_hunt.result:
             logger.info(f"Hunt already exists for video: {request.video_link} and has result")
 
-            job_state = {
+            job_repository.init_job(
+                job_id,
+                {
                 "hunt_id": existing_hunt.id,
                 "fcm_token": request.fcm_token,
-                "result": existing_hunt.result
-            }
-
-            set_job_data(job_id, job_state, ttl=86400)
-            logger.info(f"Initialized job state in Redis for job_id: {job_id}, hunt_id: {existing_hunt.id}")
+                },
+                ttl=86400,
+            )
+            job_repository.set_result(job_id, existing_hunt.result)
+            logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {existing_hunt.id}")
 
             task = TaskMessage(
                 job_id=job_id,
@@ -91,14 +93,16 @@ async def start_hunt(
             
             new_hunt = existing_hunt
             
-            job_state = {
-                "hunt_id": new_hunt.id,
-                "fcm_token": request.fcm_token,
-                "cdn_link": str(request.cdn_link),
-            }
-            
-            set_job_data(job_id, job_state, ttl=86400)
-            logger.info(f"Initialized job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
+            job_repository.init_job(
+                job_id,
+                {
+                    "hunt_id": new_hunt.id,
+                    "fcm_token": request.fcm_token,
+                    "cdn_link": str(request.cdn_link),
+                },
+                ttl=86400,
+            )
+            logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
             
             task = TaskMessage(
                 job_id=job_id,
@@ -110,14 +114,16 @@ async def start_hunt(
             new_hunt = db.create_hunt(session, str(request.video_link))
             logger.info(f"Created new hunt with id: {new_hunt.id}")
             
-            job_state = {
-                "hunt_id": new_hunt.id,
-                "fcm_token": request.fcm_token,
-                "cdn_link": str(request.cdn_link),
-            }
-            
-            set_job_data(job_id, job_state, ttl=86400)
-            logger.info(f"Initialized job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
+            job_repository.init_job(
+                job_id,
+                {
+                    "hunt_id": new_hunt.id,
+                    "fcm_token": request.fcm_token,
+                    "cdn_link": str(request.cdn_link),
+                },
+                ttl=86400,
+            )
+            logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
             
             task = TaskMessage(
                 job_id=job_id,
