@@ -12,6 +12,7 @@ from rmq.schemas import TaskMessage
 from rmq.constants import EXTRACT_AUDIO, NOTIFY
 from health import is_system_healthy, check_health_dependency
 from rmq_redis import set_job_data
+from auth.supabase_auth import AuthenticatedUser, get_authenticated_user
 
 logger = get_logger("router")
 router = APIRouter()
@@ -40,7 +41,12 @@ def get_health() -> HealthResponse:
 
 
 @router.post("/start-hunt", response_model=StartHuntResponse, tags=["hunts"])
-async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.get_db), _: None = Depends(check_health_dependency)) -> StartHuntResponse:
+async def start_hunt(
+    request: StartHuntRequest,
+    session: Session = Depends(db.get_db),
+    _: None = Depends(check_health_dependency),
+    authenticated_user: AuthenticatedUser = Depends(get_authenticated_user),
+) -> StartHuntResponse:
     """
     Start a new hunt with video and CDN links.
     
@@ -50,7 +56,12 @@ async def start_hunt(request: StartHuntRequest, session: Session = Depends(db.ge
     Returns the hunt result and status.
     """
     try:
-        logger.info(f"Starting hunt with video: {request.video_link}, cdn: {request.cdn_link}")
+        logger.info(
+            "Starting hunt for user_id=%s video=%s cdn=%s",
+            authenticated_user.sub,
+            request.video_link,
+            request.cdn_link,
+        )
 
         existing_hunt = db.get_hunt_by_video_link(session, str(request.video_link))
         

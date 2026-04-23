@@ -2,12 +2,20 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     id("com.google.gms.google-services")
 }
 
 android {
     namespace = "com.example.android"
     compileSdk = 36
+
+    val supabaseUrl = (project.findProperty("SUPABASE_URL") as String?)
+        ?: System.getenv("SUPABASE_URL")
+        ?: ""
+    val supabaseAnonKey = (project.findProperty("SUPABASE_ANON_KEY") as String?)
+        ?: System.getenv("SUPABASE_ANON_KEY")
+        ?: ""
 
     defaultConfig {
         applicationId = "com.example.android"
@@ -17,6 +25,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     buildTypes {
@@ -37,6 +47,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -72,6 +83,11 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Supabase Auth (Google OAuth + session management)
+    implementation(platform("io.github.jan-tennert.supabase:bom:${libs.versions.supabase.get()}"))
+    implementation("io.github.jan-tennert.supabase:auth-kt")
+    implementation("io.ktor:ktor-client-okhttp:${libs.versions.ktor.get()}")
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
