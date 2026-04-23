@@ -4,7 +4,7 @@ import android.content.Intent
 import com.example.android.BuildConfig
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.builtin.Google
+import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.createSupabaseClient
 
