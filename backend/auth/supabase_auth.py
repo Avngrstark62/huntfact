@@ -82,7 +82,8 @@ def _extract_token(credentials: HTTPAuthorizationCredentials | None) -> str:
 def _get_signing_key(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
     try:
         header = jwt.get_unverified_header(token)
-    except JWTError:
+    except JWTError as e:
+        logger.error("JWT decode failed: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
@@ -108,7 +109,7 @@ def _get_signing_key(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
 def _decode_claims(token: str, signing_key: dict[str, Any]) -> dict[str, Any]:
     options = {"verify_aud": bool(settings.supabase_audience)}
     kwargs: dict[str, Any] = {
-        "algorithms": ["RS256"],
+        "algorithms": ["ES256"],
         "issuer": settings.supabase_issuer,
         "options": options,
     }
@@ -117,7 +118,8 @@ def _decode_claims(token: str, signing_key: dict[str, Any]) -> dict[str, Any]:
 
     try:
         return jwt.decode(token, signing_key, **kwargs)
-    except JWTError:
+    except JWTError as e:
+        logger.error("JWT decode failed: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
@@ -149,9 +151,9 @@ def get_authenticated_user(
             user.sub,
         )
         return user
-    except HTTPException:
+    except HTTPException as e:
         logger.info(
-            "auth_check outcome=failure endpoint=%s user_id=unknown",
+            f"auth_check outcome=failure endpoint=%s user_id=unknown error={e}",
             request.url.path,
         )
         raise
