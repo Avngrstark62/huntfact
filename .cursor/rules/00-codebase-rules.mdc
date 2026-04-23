@@ -12,6 +12,8 @@ alwaysApply: true
 - Update nearby docs when behavior, setup steps, or contracts change.
 - Validate changes with the smallest relevant checks before finishing.
 - Call out assumptions, edge cases, or follow-up work when they are not addressed.
+- when asked to implement a plan, first check the `specs/` directory, find the relevant spec, and implement strictly according to that spec before writing code.
+- do not make implementation decisions independently when a matching spec exists; follow the spec as the source of truth.
 - dont run any code unless explicitly asked
 - dont write any documentation explaining your implementation unless explicitly asked
 - dont write any test cases unless explicitly asked
