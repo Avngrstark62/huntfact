@@ -51,8 +51,8 @@ EXPECTED_NEXT_STEP = {
     FETCH_URLS: SELECT_URLS,
     SELECT_URLS: FETCH_PAGES,
     FETCH_PAGES: SAVE_DATA_TO_RAG,
-    SAVE_DATA_TO_RAG: ANSWER_QUESTIONS,
-    ANSWER_QUESTIONS: GENERATE_RESULT,
+    SAVE_DATA_TO_RAG: None,
+    ANSWER_QUESTIONS: None,
     GENERATE_RESULT: SAVE_RESULT_TO_DB,
     SAVE_RESULT_TO_DB: NOTIFY,
     NOTIFY: None,
@@ -70,6 +70,7 @@ async def handle_task(msg: dict):
     try:
         job_id = msg.get("job_id")
         step = msg.get("step")
+        payload = msg.get("payload")
         if not job_repository.job_exists(job_id):
             logger.error(f"[TASK HANDLER] Job state not found in Redis for job_id: {job_id}")
             return
@@ -93,7 +94,7 @@ async def handle_task(msg: dict):
             error_message=None,
         )
 
-        next_task = await handler(job_id)
+        next_task = await handler(job_id, payload)
 
         if next_task is None and expected_next_step is not None:
             job_repository.set_step_state(job_id, step, "failed")
@@ -106,7 +107,13 @@ async def handle_task(msg: dict):
             )
             return
 
-        job_repository.set_step_state(job_id, step, "done")
+        answer_fanin_complete = step == ANSWER_QUESTIONS and next_task is not None
+        if step != ANSWER_QUESTIONS:
+            job_repository.set_step_state(job_id, step, "done")
+
+        if step == SAVE_DATA_TO_RAG and next_task is None:
+            job_repository.set_step_state(job_id, ANSWER_QUESTIONS, "running")
+
         if step == NOTIFY:
             job_repository.set_job_status(
                 job_id,
@@ -116,7 +123,12 @@ async def handle_task(msg: dict):
                 error_message=None,
             )
         else:
-            current_step = next_task.step if next_task is not None else step
+            if step == SAVE_DATA_TO_RAG and next_task is None:
+                current_step = ANSWER_QUESTIONS
+            elif step == ANSWER_QUESTIONS:
+                current_step = next_task.step if next_task is not None else ANSWER_QUESTIONS
+            else:
+                current_step = next_task.step if next_task is not None else step
             job_repository.set_job_status(
                 job_id,
                 "running",
@@ -127,6 +139,8 @@ async def handle_task(msg: dict):
 
         if next_task is not None:
             await publish_task(next_task)
+        if answer_fanin_complete:
+            job_repository.set_step_state(job_id, step, "done")
         
     except Exception as e:
         if job_id and step:

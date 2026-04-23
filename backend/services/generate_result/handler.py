@@ -8,7 +8,7 @@ from rmq_redis import job_repository
 logger = get_logger("services.generate_result.handler")
 
 
-async def handle_generate_result(job_id: str) -> Optional[TaskMessage]:
+async def handle_generate_result(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Generate final result.
     

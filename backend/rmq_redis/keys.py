@@ -60,3 +60,23 @@ def job_page_key(job_id: str, page_id: str) -> str:
 
 def job_result_key(job_id: str) -> str:
     return f"{job_prefix(job_id)}:result"
+
+
+def job_qa_total_key(job_id: str) -> str:
+    return f"{job_prefix(job_id)}:qa:total"
+
+
+def job_qa_done_key(job_id: str) -> str:
+    return f"{job_prefix(job_id)}:qa:done"
+
+
+def job_qa_failed_key(job_id: str) -> str:
+    return f"{job_prefix(job_id)}:qa:failed"
+
+
+def job_qa_completed_items_key(job_id: str) -> str:
+    return f"{job_prefix(job_id)}:qa:completed_items"
+
+
+def job_qa_generate_lock_key(job_id: str) -> str:
+    return f"{job_prefix(job_id)}:qa:generate_lock"

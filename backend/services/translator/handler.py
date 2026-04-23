@@ -8,7 +8,7 @@ from rmq_redis import job_repository
 logger = get_logger("services.translator.handler")
 
 
-async def handle_translate(job_id: str) -> Optional[TaskMessage]:
+async def handle_translate(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Translate utterances to English.
     

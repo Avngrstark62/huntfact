@@ -8,7 +8,7 @@ from rmq_redis import job_repository
 logger = get_logger("services.extract_questions_queries.handler")
 
 
-async def handle_extract_questions_queries(job_id: str) -> Optional[TaskMessage]:
+async def handle_extract_questions_queries(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Extract questions and queries from English utterances.
     
