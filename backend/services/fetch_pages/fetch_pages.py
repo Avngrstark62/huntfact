@@ -30,9 +30,13 @@ async def fetch_pages(selected_urls_list: List[str]) -> Dict[str, Any]:
             result = await scrape_page(href)
             
             if result:
+                title = result.get("title", "")
+                content = result.get("content", "")
+                formatted_content = f"{title}\n\n{content}" if title else content
+                
                 pages_data.append({
                     "url": href,
-                    "scraped_content": result
+                    "scraped_content": formatted_content
                 })
                 logger.info(f"Successfully scraped: {href}")
         except Exception as e:

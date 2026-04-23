@@ -24,7 +24,7 @@ async def handle_answer_questions(job_id: str, job_state: dict) -> Tuple[dict, O
     logger.info(f"Answering questions for {len(items)} items for job_id: {job_id}")
     
     try:
-        items_with_answers = await answer_questions(items)
+        items_with_answers = await answer_questions(job_id, items)
         
         job_state["items"] = items_with_answers
         
