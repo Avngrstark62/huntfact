@@ -9,7 +9,7 @@ from rmq_redis import job_repository
 logger = get_logger("services.audio_extractor.handler")
 
 
-async def handle_extract_audio(job_id: str) -> Optional[TaskMessage]:
+async def handle_extract_audio(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Extract audio from URL stored in job state.
     

@@ -8,7 +8,7 @@ from rmq_redis import job_repository
 logger = get_logger("services.save_result_to_db.handler")
 
 
-async def handle_save_result_to_db(job_id: str) -> Optional[TaskMessage]:
+async def handle_save_result_to_db(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Save result to database.
     

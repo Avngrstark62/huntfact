@@ -31,6 +31,11 @@ from .keys import (
     job_meta_key,
     job_page_key,
     job_pages_index_key,
+    job_qa_completed_items_key,
+    job_qa_done_key,
+    job_qa_failed_key,
+    job_qa_generate_lock_key,
+    job_qa_total_key,
     job_result_key,
     job_steps_key,
     job_utterances_en_key,
@@ -266,6 +271,57 @@ class RedisJobRepository:
                 item["answer"] = answer
             items.append(item)
         return items
+
+    def init_qa_barrier(self, job_id: str, total: int) -> None:
+        total_key = job_qa_total_key(job_id)
+        done_key = job_qa_done_key(job_id)
+        failed_key = job_qa_failed_key(job_id)
+        completed_items_key = job_qa_completed_items_key(job_id)
+        generate_lock_key = job_qa_generate_lock_key(job_id)
+
+        self._client().set(total_key, str(total))
+        self._client().set(done_key, "0")
+        self._client().set(failed_key, "0")
+        self._client().delete(completed_items_key)
+        self._client().delete(generate_lock_key)
+
+        self._register_key(job_id, total_key, BASE_TTL_SECONDS)
+        self._register_key(job_id, done_key, BASE_TTL_SECONDS)
+        self._register_key(job_id, failed_key, BASE_TTL_SECONDS)
+        self._register_key(job_id, completed_items_key, BASE_TTL_SECONDS)
+        self._register_key(job_id, generate_lock_key, BASE_TTL_SECONDS)
+
+    def mark_qa_item_completed(self, job_id: str, item_id: str) -> tuple[bool, int, int]:
+        completed_items_key = job_qa_completed_items_key(job_id)
+        done_key = job_qa_done_key(job_id)
+        total_key = job_qa_total_key(job_id)
+
+        added = int(self._client().sadd(completed_items_key, item_id))
+        if added == 1:
+            done = int(self._client().incr(done_key))
+        else:
+            done_raw = self._client().get(done_key)
+            done = int(done_raw) if done_raw is not None else 0
+
+        total_raw = self._client().get(total_key)
+        total = int(total_raw) if total_raw is not None else 0
+
+        self._register_key(job_id, completed_items_key, BASE_TTL_SECONDS)
+        self._register_key(job_id, done_key, BASE_TTL_SECONDS)
+        self._register_key(job_id, total_key, BASE_TTL_SECONDS)
+        return (added == 1, done, total)
+
+    def increment_qa_failed(self, job_id: str) -> int:
+        failed_key = job_qa_failed_key(job_id)
+        failed = int(self._client().incr(failed_key))
+        self._register_key(job_id, failed_key, BASE_TTL_SECONDS)
+        return failed
+
+    def try_acquire_generate_lock(self, job_id: str) -> bool:
+        lock_key = job_qa_generate_lock_key(job_id)
+        acquired = bool(self._client().set(lock_key, "1", nx=True, ex=BASE_TTL_SECONDS))
+        self._register_key(job_id, lock_key, BASE_TTL_SECONDS)
+        return acquired
 
     def set_audio(self, job_id: str, audio_b64: Optional[str], fmt: Optional[str], error: Optional[str] = None) -> None:
         audio_key = job_audio_key(job_id)

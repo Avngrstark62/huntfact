@@ -8,7 +8,7 @@ from rmq_redis import job_repository
 logger = get_logger("services.fetch_pages.handler")
 
 
-async def handle_fetch_pages(job_id: str) -> Optional[TaskMessage]:
+async def handle_fetch_pages(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Fetch and scrape pages from selected URLs.
     

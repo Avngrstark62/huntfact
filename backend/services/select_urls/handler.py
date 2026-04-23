@@ -8,7 +8,7 @@ from rmq_redis import job_repository
 logger = get_logger("services.select_urls.handler")
 
 
-async def handle_select_urls(job_id: str) -> Optional[TaskMessage]:
+async def handle_select_urls(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Select top URLs for each question/query item.
     
