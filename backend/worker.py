@@ -8,7 +8,7 @@ from rmq.constants import (
     ANSWER_QUESTIONS, GENERATE_RESULT, SAVE_RESULT_TO_DB, NOTIFY
 )
 from rmq.schemas import TaskMessage
-from rmq.consumer import start_consumer
+from rmq.consumer import start_task_consumer
 from rmq.connection import rabbitmq
 from rmq.publisher import publish_task
 from rmq_redis import job_repository
@@ -145,7 +145,7 @@ async def main():
     loop.add_signal_handler(signal.SIGINT, handle_shutdown, signal.SIGINT, None)
     
     try:
-        consumer_task = asyncio.create_task(start_consumer(handle_task))
+        consumer_task = asyncio.create_task(start_task_consumer(handle_task))
         await consumer_task
     except asyncio.CancelledError:
         logger.info("Consumer was cancelled, shutting down...")
