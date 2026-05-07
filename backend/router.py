@@ -7,9 +7,9 @@ from logging_config import get_logger
 from schemas import StartHuntRequest, StartHuntResponse, HealthResponse
 from config import settings
 from db.database import db
-from rmq.publisher import publish_task
-from rmq.schemas import TaskMessage
-from rmq.constants import EXTRACT_AUDIO, NOTIFY
+from rmq.publisher import publish_task, publish_workflow
+from rmq.schemas import TaskMessage, WorkflowMessage
+from rmq.constants import NOTIFY
 from health import is_system_healthy, check_health_dependency
 from auth.supabase_auth import AuthenticatedUser, get_authenticated_user
 from rmq_redis import job_repository
@@ -88,7 +88,16 @@ async def start_hunt(
                 priority=12,
                 payload={}
             )
-        elif existing_hunt:
+            await publish_task(task)
+            logger.info(f"Task published: {task.step}")
+
+            return StartHuntResponse(
+                success=True,
+                message="Hunt started successfully",
+                result="Processing",
+            )
+
+        if existing_hunt:
             logger.info(f"Hunt already exists for video: {request.video_link} but no result, reprocessing")
             
             new_hunt = existing_hunt
@@ -103,38 +112,51 @@ async def start_hunt(
                 ttl=86400,
             )
             logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
-            
-            task = TaskMessage(
-                job_id=job_id,
-                step=EXTRACT_AUDIO,
-                priority=1,
-                payload={}
+
+            await publish_workflow(
+                WorkflowMessage(
+                    workflow_id=job_id,
+                    payload={
+                        "hunt_id": new_hunt.id,
+                        "fcm_token": request.fcm_token,
+                        "cdn_link": str(request.cdn_link),
+                    },
+                )
             )
-        else:
-            new_hunt = db.create_hunt(session, str(request.video_link))
-            logger.info(f"Created new hunt with id: {new_hunt.id}")
-            
-            job_repository.init_job(
-                job_id,
-                {
+            logger.info(f"Workflow published for job_id: {job_id}")
+
+            return StartHuntResponse(
+                success=True,
+                message="Hunt started successfully",
+                result="Processing",
+            )
+
+        new_hunt = db.create_hunt(session, str(request.video_link))
+        logger.info(f"Created new hunt with id: {new_hunt.id}")
+        
+        job_repository.init_job(
+            job_id,
+            {
+                "hunt_id": new_hunt.id,
+                "fcm_token": request.fcm_token,
+                "cdn_link": str(request.cdn_link),
+            },
+            ttl=86400,
+        )
+        logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
+
+        await publish_workflow(
+            WorkflowMessage(
+                workflow_id=job_id,
+                payload={
                     "hunt_id": new_hunt.id,
                     "fcm_token": request.fcm_token,
                     "cdn_link": str(request.cdn_link),
                 },
-                ttl=86400,
             )
-            logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
-            
-            task = TaskMessage(
-                job_id=job_id,
-                step=EXTRACT_AUDIO,
-                priority=1,
-                payload={}
-            )
-        
-        await publish_task(task)
-        logger.info(f"Task published: {task.step}")
-        
+        )
+        logger.info(f"Workflow published for job_id: {job_id}")
+
         return StartHuntResponse(
             success=True,
             message="Hunt started successfully",
