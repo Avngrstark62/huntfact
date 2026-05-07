@@ -19,11 +19,11 @@ async def start_task_consumer(handler):
         )
 
         async with queue.iterator() as queue_iter:
-            async for message in queue_iter:
-                async with message.process():
+            async for raw_message in queue_iter:
+                async with raw_message.process():
                     try:
-                        msg = json.loads(message.body)
-                        await handler(msg)
+                        msg = json.loads(raw_message.body)
+                        await handler(msg, raw_message)
                     except Exception as e:
                         logger.error(
                             f"[TASK_CONSUMER] Error processing message: {str(e)}",
@@ -45,10 +45,10 @@ async def start_workflow_consumer(handler):
         )
 
         async with queue.iterator() as queue_iter:
-            async for message in queue_iter:
-                async with message.process():
+            async for raw_message in queue_iter:
+                async with raw_message.process():
                     try:
-                        msg = json.loads(message.body)
+                        msg = json.loads(raw_message.body)
                         await handler(msg)
                     except Exception as e:
                         logger.error(
