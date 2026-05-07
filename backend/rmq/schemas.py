@@ -8,7 +8,6 @@ class WorkflowMessage(BaseModel):
 
 
 class TaskMessage(BaseModel):
-    job_id: str = Field(..., description="Unique job identifier")
     step: str = Field(..., description="Step name or type")
     payload: Dict[str, Any] = Field(..., description="Task payload data")
     priority: int = Field(default=5, description="Message priority")

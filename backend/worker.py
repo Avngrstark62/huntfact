@@ -10,7 +10,7 @@ from rmq.constants import (
 )
 from rmq.consumer import start_task_consumer
 from rmq.connection import rabbitmq
-from services.audio_extractor.handler import handle_extract_audio
+from services.audio_extractor.audio_extractor import extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
 from services.extract_questions_queries.handler import handle_extract_questions_queries
@@ -23,48 +23,25 @@ from services.generate_result.handler import handle_generate_result
 from services.save_result_to_db.handler import handle_save_result_to_db
 from services.notification_sender.handler import handle_notify
 
-STEP_HANDLERS = {
-    EXTRACT_AUDIO: handle_extract_audio,
-    TRANSCRIBE: handle_transcribe,
-    TRANSLATE: handle_translate,
-    EXTRACT_QUESTIONS_QUERIES: handle_extract_questions_queries,
-    FETCH_URLS: handle_fetch_urls,
-    SELECT_URLS: handle_select_urls,
-    FETCH_PAGES: handle_fetch_pages,
-    SAVE_DATA_TO_RAG: handle_save_data_to_rag,
-    ANSWER_QUESTIONS: handle_answer_questions,
-    GENERATE_RESULT: handle_generate_result,
-    SAVE_RESULT_TO_DB: handle_save_result_to_db,
-    NOTIFY: handle_notify,
-}
-
 logger = get_logger("rmq.worker")
 
 
 async def handle_task(msg: dict):
     """Run one pipeline step for a task message. Does not enqueue follow-up work."""
-    job_id = None
     step = None
     try:
-        job_id = msg.get("job_id")
         step = msg.get("step")
-        if not job_id or not step:
-            logger.error(
-                f"[TASK HANDLER] Missing job_id or step in message: job_id={job_id!r} step={step!r}"
-            )
-            return
-
-        handler = STEP_HANDLERS.get(step)
-        if not handler:
-            logger.error(f"[TASK HANDLER] Unknown step: {step} for job_id: {job_id}")
-            return
-
         payload = msg.get("payload")
-        await handler(job_id, payload)
-
+        if step == EXTRACT_AUDIO:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            cdn_link = payload.get("cdn_link")
+            audio_bytes = await extract_audio(cdn_link)
+            logger.info(f"[TASK HANDLER] Extracted audio - step: {step}, audio_size: {len(audio_bytes)} bytes")
+        else:
+            logger.error(f"[TASK HANDLER] No handler for step: {step}")
     except Exception as e:
         logger.error(
-            f"[TASK HANDLER] Task failed - job_id: {job_id}, step: {step}, error: {str(e)}",
+            f"[TASK HANDLER] Task failed - step: {step}, error: {str(e)}",
             exc_info=True,
         )
         raise

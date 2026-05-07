@@ -26,7 +26,6 @@ async def handle_workflow_message(msg: dict) -> None:
 
         # audio extraction
         await publish_task(TaskMessage(
-            job_id=workflow_id,
             step=EXTRACT_AUDIO,
             priority=1,
             payload={"cdn_link": cdn_link},

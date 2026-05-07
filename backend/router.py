@@ -83,7 +83,6 @@ async def start_hunt(
             logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {existing_hunt.id}")
 
             task = TaskMessage(
-                job_id=job_id,
                 step=NOTIFY,
                 priority=12,
                 payload={}
