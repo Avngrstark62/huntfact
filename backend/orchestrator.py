@@ -6,36 +6,34 @@ from logging_config import get_logger, setup_logging
 
 from rmq.connection import rabbitmq
 from rmq.consumer import start_workflow_consumer
-from rmq.schemas import WorkflowMessage
+from rmq.schemas import WorkflowMessage, TaskMessage
+from rmq.publisher import publish_task
+from rmq.constants import EXTRACT_AUDIO
 
 logger = get_logger("workflow_orchestrator")
-
-
-async def _add_three(workflow_id: str, state: dict) -> None:
-    state["value"] = state["value"] + 3
-    logger.info("workflow %s add_three -> %s", workflow_id, state["value"])
-
-
-async def _double(workflow_id: str, state: dict) -> None:
-    state["value"] = state["value"] * 2
-    logger.info("workflow %s double -> %s", workflow_id, state["value"])
-
-
-async def _minus_five(workflow_id: str, state: dict) -> None:
-    state["value"] = state["value"] - 5
-    logger.info("workflow %s minus_five -> %s", workflow_id, state["value"])
-
 
 async def handle_workflow_message(msg: dict) -> None:
     try:
         workflow = WorkflowMessage.model_validate(msg)
-        state = {"value": int(workflow.payload.get("start", 0))}
+        workflow_id = workflow.workflow_id
+        payload = workflow.payload
+        cdn_link = payload.get("cdn_link")
+        logger.info(
+            "Received workflow message: workflow_id=%s cdn_link=%s",
+            workflow_id,
+            cdn_link,
+        )
 
-        logger.info("workflow %s start value=%s", workflow.workflow_id, state["value"])
-        await _add_three(workflow.workflow_id, state)
-        await _double(workflow.workflow_id, state)
-        await _minus_five(workflow.workflow_id, state)
-        logger.info("workflow %s finished final value=%s", workflow.workflow_id, state["value"])
+        # audio extraction
+        await publish_task(TaskMessage(
+            job_id=workflow_id,
+            step=EXTRACT_AUDIO,
+            priority=1,
+            payload={"cdn_link": cdn_link},
+            ))
+
+        logger.info("Published task for workflow_id=%s step=%s", workflow_id, EXTRACT_AUDIO)
+
     except Exception as e:
         logger.error(
             "Workflow execution failed: %s body=%s",
