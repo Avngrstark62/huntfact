@@ -101,17 +101,6 @@ async def start_hunt(
             logger.info(f"Hunt already exists for video: {request.video_link} but no result, reprocessing")
             
             new_hunt = existing_hunt
-            
-            job_repository.init_job(
-                job_id,
-                {
-                    "hunt_id": new_hunt.id,
-                    "fcm_token": request.fcm_token,
-                    "cdn_link": str(request.cdn_link),
-                },
-                ttl=86400,
-            )
-            logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
 
             await publish_workflow(
                 WorkflowMessage(
@@ -134,17 +123,6 @@ async def start_hunt(
         new_hunt = db.create_hunt(session, str(request.video_link))
         logger.info(f"Created new hunt with id: {new_hunt.id}")
         
-        job_repository.init_job(
-            job_id,
-            {
-                "hunt_id": new_hunt.id,
-                "fcm_token": request.fcm_token,
-                "cdn_link": str(request.cdn_link),
-            },
-            ttl=86400,
-        )
-        logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {new_hunt.id}")
-
         await publish_workflow(
             WorkflowMessage(
                 workflow_id=job_id,
