@@ -1,5 +1,5 @@
 import json
-import asyncio
+
 from logging_config import get_logger
 
 from rmq.connection import rabbitmq
@@ -8,14 +8,14 @@ from config import settings
 logger = get_logger("rmq.consumer")
 
 
-async def start_consumer(handler):
+async def start_task_consumer(handler):
     try:
         channel = await rabbitmq.get_channel(settings.prefetch_count)
 
         queue = await channel.declare_queue(
-            settings.queue_name,
+            settings.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.max_priority}
+            arguments={"x-max-priority": settings.max_priority},
         )
 
         async with queue.iterator() as queue_iter:
@@ -25,8 +25,37 @@ async def start_consumer(handler):
                         msg = json.loads(message.body)
                         await handler(msg)
                     except Exception as e:
-                        logger.error(f"[CONSUMER] Error processing message: {str(e)}", exc_info=True)
+                        logger.error(
+                            f"[TASK_CONSUMER] Error processing message: {str(e)}",
+                            exc_info=True,
+                        )
                         raise
     except Exception as e:
-        logger.error(f"[CONSUMER] Consumer failed: {str(e)}", exc_info=True)
+        logger.error(f"[TASK_CONSUMER] Consumer failed: {str(e)}", exc_info=True)
+        raise
+
+
+async def start_workflow_consumer(handler):
+    try:
+        channel = await rabbitmq.get_channel(settings.prefetch_count)
+
+        queue = await channel.declare_queue(
+            settings.workflow_queue_name,
+            durable=True,
+        )
+
+        async with queue.iterator() as queue_iter:
+            async for message in queue_iter:
+                async with message.process():
+                    try:
+                        msg = json.loads(message.body)
+                        await handler(msg)
+                    except Exception as e:
+                        logger.error(
+                            f"[WORKFLOW_CONSUMER] Error processing message: {str(e)}",
+                            exc_info=True,
+                        )
+                        raise
+    except Exception as e:
+        logger.error(f"[WORKFLOW_CONSUMER] Consumer failed: {str(e)}", exc_info=True)
         raise

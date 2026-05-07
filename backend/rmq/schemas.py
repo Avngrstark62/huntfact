@@ -2,6 +2,11 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any
 
 
+class WorkflowMessage(BaseModel):
+    workflow_id: str = Field(..., description="Unique workflow run id")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Optional input; e.g. start number under key 'start'")
+
+
 class TaskMessage(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     step: str = Field(..., description="Step name or type")

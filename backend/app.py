@@ -35,13 +35,18 @@ class App:
                 await rabbitmq.connect()
                 channel = await rabbitmq.get_channel()
                 await channel.declare_queue(
-                    settings.queue_name,
+                    settings.task_queue_name,
                     durable=True,
                     arguments={"x-max-priority": settings.max_priority}
                 )
+                await channel.declare_queue(
+                    settings.workflow_queue_name,
+                    durable=True,
+                )
                 rabbitmq.is_healthy = True
                 logger.info("RabbitMQ connection established successfully")
-                logger.info(f"Queue '{settings.queue_name}' declared successfully")
+                logger.info(f"Queue '{settings.task_queue_name}' declared successfully")
+                logger.info(f"Queue '{settings.workflow_queue_name}' declared successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize RabbitMQ: {str(e)}", exc_info=True)
                 rabbitmq.is_healthy = False

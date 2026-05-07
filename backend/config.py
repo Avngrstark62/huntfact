@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     supabase_audience: str | None = None
 
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
-    queue_name: str = "task_queue"
+    task_queue_name: str = "task_queue"
+    workflow_queue_name: str = "workflow_queue"
     max_priority: int = 20
     prefetch_count: int = 1
 

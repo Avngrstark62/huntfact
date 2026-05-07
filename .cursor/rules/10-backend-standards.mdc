@@ -34,6 +34,8 @@ alwaysApply: false
 - Preserve Redis-backed state lifecycle: read before step, update after step, publish next task when provided.
 - Keep RabbitMQ usage via shared client (`rmq.connection.rabbitmq`) and channel QoS/prefetch from settings.
 - Use `TaskMessage` (`rmq/schemas.py`) as the only queue payload contract.
+- Use `publish_task` for the hunt pipeline queue (`settings.task_queue_name`) and `publish_workflow` for the workflow queue (`settings.workflow_queue_name`); callers pass only the message body.
+- When consuming messages, use `start_task_consumer` for the hunt task queue or `start_workflow_consumer` for the workflow queue (each binds to the matching `settings.*_queue_name`).
 
 ## 5) Redis job state (`rmq_redis/*`)
 
