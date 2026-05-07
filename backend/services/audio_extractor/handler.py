@@ -8,7 +8,7 @@ from rmq.constants import TRANSCRIBE
 logger = get_logger("services.audio_extractor.handler")
 
 
-async def handle_extract_audio(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
+async def handle_extract_audio(payload: dict | None = None) -> Optional[TaskMessage]:
     """
     Extract audio from URL stored in job state.
     
@@ -16,21 +16,20 @@ async def handle_extract_audio(job_id: str, payload: dict | None = None) -> Opti
     with audio extraction result, along with the next task message.
     
     Args:
-        job_id: Unique job identifier
         job_state: Current job state dict
     
     Returns:
         Tuple of (updated_state, next_task_message)
     """
-    logger.info(f"Starting audio extraction for job: {job_id}")
+    logger.info(f"Starting audio extraction")
     
     cdn_link = payload.get("cdn_link")
     
     if not cdn_link:
-        logger.error(f"No cdn_link found in the payload for job_id: {job_id}")
+        logger.error(f"No cdn_link found in the payload")
         return None
     
-    logger.info(f"Extracting audio from CDN link for job_id: {job_id}")
+    logger.info(f"Extracting audio from CDN link")
     
     # Extract audio using the URL
     result = await extract_audio(cdn_link)
@@ -40,9 +39,9 @@ async def handle_extract_audio(job_id: str, payload: dict | None = None) -> Opti
     audio_bytes_b64 = base64.b64encode(audio).decode("utf-8") if audio else None
     
     if result.get("error"):
-        logger.error(f"Audio extraction failed for job_id: {job_id}, error: {result.get('error')}")
+        logger.error(f"Audio extraction failed, error: {result.get('error')}")
         return None
     
-    logger.info(f"Audio extraction completed for job_id: {job_id}")
+    logger.info(f"Audio extraction completed successfully")
     
     return True

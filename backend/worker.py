@@ -10,7 +10,7 @@ from rmq.constants import (
 )
 from rmq.consumer import start_task_consumer
 from rmq.connection import rabbitmq
-from services.audio_extractor.audio_extractor import extract_audio
+from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
 from services.extract_questions_queries.handler import handle_extract_questions_queries
@@ -34,9 +34,7 @@ async def handle_task(msg: dict):
         payload = msg.get("payload")
         if step == EXTRACT_AUDIO:
             logger.info(f"[TASK HANDLER] Starting task - step: {step}")
-            cdn_link = payload.get("cdn_link")
-            audio_bytes = await extract_audio(cdn_link)
-            logger.info(f"[TASK HANDLER] Extracted audio - step: {step}, audio_size: {len(audio_bytes)} bytes")
+            await handle_extract_audio(payload)
         else:
             logger.error(f"[TASK HANDLER] No handler for step: {step}")
     except Exception as e:
