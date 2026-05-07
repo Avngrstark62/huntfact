@@ -30,12 +30,12 @@ alwaysApply: false
 
 ## 4) Worker + RabbitMQ (`worker.py`, `rmq/*`)
 
-- Keep `worker.py` as the task executor: map `step` to `handle_*`, run one handler per message with `job_id` and optional `payload`; do not enqueue follow-up tasks from the worker (orchestration lives elsewhere). The worker does not read Redis or check job existence; handlers own persistence.
+- Keep `worker.py` as the task executor: map `step` to `handle_*` per message `payload`. When the AMQP message has `reply_to` (RPC), publish a JSON reply and avoid re-raising so the delivery is acked once the client is notified. Without `reply_to`, fire-and-forget behavior is unchanged (errors may still raise). The worker does not read Redis or check job existence unless a handler does.
 - Preserve Redis-backed state lifecycle in handlers: read/update job state in Redis as each step requires.
 - Keep RabbitMQ usage via shared client (`rmq.connection.rabbitmq`) and channel QoS/prefetch from settings.
 - Use `TaskMessage` (`rmq/schemas.py`) as the only queue payload contract.
-- Use `publish_task` for the hunt pipeline queue (`settings.task_queue_name`) and `publish_workflow` for the workflow queue (`settings.workflow_queue_name`); callers pass only the message body.
-- When consuming messages, use `start_task_consumer` for the hunt task queue or `start_workflow_consumer` for the workflow queue (each binds to the matching `settings.*_queue_name`).
+- Use `publish_task` for fire-and-forget to the hunt task queue (`settings.task_queue_name`); use `publish_task_rpc` when the caller must `await` a JSON response via direct reply-to (optional `timeout=`). Use `publish_workflow` for the workflow queue (`settings.workflow_queue_name`).
+- When consuming the task queue, `start_task_consumer` calls `handler(parsed_body, raw_message)`. The workflow consumer still uses `handler(parsed_body)` only.
 
 ## 5) Redis job state (`rmq_redis/*`)
 

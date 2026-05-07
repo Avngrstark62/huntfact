@@ -7,7 +7,7 @@ from logging_config import get_logger, setup_logging
 from rmq.connection import rabbitmq
 from rmq.consumer import start_workflow_consumer
 from rmq.schemas import WorkflowMessage, TaskMessage
-from rmq.publisher import publish_task
+from rmq.publisher import publish_task_rpc
 from rmq.constants import EXTRACT_AUDIO
 
 logger = get_logger("workflow_orchestrator")
@@ -24,14 +24,26 @@ async def handle_workflow_message(msg: dict) -> None:
             cdn_link,
         )
 
-        # audio extraction
-        await publish_task(TaskMessage(
+        # audio extraction via RPC publish so orchestrator can observe completion.
+        rpc_response = await publish_task_rpc(TaskMessage(
             step=EXTRACT_AUDIO,
             priority=1,
             payload={"cdn_link": cdn_link},
             ))
 
-        logger.info("Published task for workflow_id=%s step=%s", workflow_id, EXTRACT_AUDIO)
+        status = rpc_response.get("status")
+        response_step = rpc_response.get("step")
+        response_result = rpc_response.get("result")
+        result_type = type(response_result).__name__
+        result_size = len(response_result) if isinstance(response_result, (bytes, str, list, dict)) else None
+        logger.info(
+            "RPC result workflow_id=%s status=%s step=%s result_type=%s result_size=%s",
+            workflow_id,
+            status,
+            response_step,
+            result_type,
+            result_size,
+        )
 
     except Exception as e:
         logger.error(

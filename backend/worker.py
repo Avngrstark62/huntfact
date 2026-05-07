@@ -58,10 +58,14 @@ async def _publish_task_reply(
     }
     if cid is not None:
         msg_kwargs["correlation_id"] = cid
-    await raw_message.channel.default_exchange.publish(
-        aio_pika.Message(**msg_kwargs),
-        routing_key=reply_to,
-    )
+    reply_channel = await rabbitmq.get_channel()
+    try:
+        await reply_channel.default_exchange.publish(
+            aio_pika.Message(**msg_kwargs),
+            routing_key=reply_to,
+        )
+    finally:
+        await reply_channel.close()
 
 
 async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
