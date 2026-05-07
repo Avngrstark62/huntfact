@@ -68,14 +68,6 @@ async def handle_transcribe(job_id: str, payload: dict | None = None) -> Optiona
     )
     job_repository.delete_audio(job_id)
     
-    logger.info(f"Transcription completed for job_id: {job_id}")
-    
-    # Create translation task
-    task = TaskMessage(
-        job_id=job_id,
-        step=TRANSLATE,
-        priority=3,
-        payload={}
-    )
-    
-    return task
+    logger.info(f"Transcription completed for job_id: {job_id}")    
+
+    return True

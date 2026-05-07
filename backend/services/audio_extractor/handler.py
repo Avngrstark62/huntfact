@@ -53,12 +53,4 @@ async def handle_extract_audio(job_id: str, payload: dict | None = None) -> Opti
     
     logger.info(f"Audio extraction completed for job_id: {job_id}")
     
-    # Create transcription task only on success
-    task = TaskMessage(
-        job_id=job_id,
-        step=TRANSCRIBE,
-        priority=2,
-        payload={}
-    )
-    
-    return task
+    return True

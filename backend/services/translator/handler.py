@@ -38,14 +38,6 @@ async def handle_translate(job_id: str, payload: dict | None = None) -> Optional
     
     job_repository.set_utterances_en(job_id, translated_utterances)
     
-    logger.info(f"Translation completed for job_id: {job_id}")
-    
-    # Create next task for extracting questions/queries
-    task = TaskMessage(
-        job_id=job_id,
-        step=EXTRACT_QUESTIONS_QUERIES,
-        priority=4,
-        payload={}
-    )
-    
-    return task
+    logger.info(f"Translation completed for job_id: {job_id}")    
+
+    return True

@@ -130,6 +130,11 @@ def get_authenticated_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> AuthenticatedUser:
+    if settings.disable_auth:
+        user = AuthenticatedUser(sub="disabled-auth-user")
+        request.state.authenticated_user = user
+        return user
+    
     try:
         token = _extract_token(credentials)
         jwks = _jwks_cache.get_jwks()

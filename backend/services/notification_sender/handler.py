@@ -16,7 +16,7 @@ async def handle_notify(job_id: str, payload: dict | None = None) -> Optional[Ta
     """
     logger.info(f"Starting notification for job: {job_id}")
     
-    result = job_repository.get_result(job_id)
+    result = job_repository.get_utterances_en(job_id)
     fcm_token = job_repository.get_meta_fields(job_id, ["fcm_token"]).get("fcm_token")
     
     if not result:
@@ -33,4 +33,4 @@ async def handle_notify(job_id: str, payload: dict | None = None) -> Optional[Ta
     
     logger.info(f"Notification sent for job_id: {job_id}")
     
-    return None
+    return True
