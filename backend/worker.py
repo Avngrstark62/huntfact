@@ -1,5 +1,8 @@
 import asyncio
+import json
 import signal
+
+import aio_pika
 
 from logging_config import get_logger, setup_logging
 from firebase_config import initialize_firebase
@@ -26,22 +29,90 @@ from services.notification_sender.handler import handle_notify
 logger = get_logger("rmq.worker")
 
 
-async def handle_task(msg: dict):
-    """Run one pipeline step for a task message. Does not enqueue follow-up work."""
+def _decode_reply_to(raw_message: aio_pika.IncomingMessage) -> str | None:
+    rto = raw_message.reply_to
+    if not rto:
+        return None
+    if isinstance(rto, bytes):
+        return rto.decode()
+    return str(rto)
+
+
+def _decode_correlation_id(raw_message: aio_pika.IncomingMessage) -> str | None:
+    cid = raw_message.correlation_id
+    if cid is None:
+        return None
+    if isinstance(cid, bytes):
+        return cid.decode()
+    return str(cid)
+
+
+async def _publish_task_reply(
+    raw_message: aio_pika.IncomingMessage,
+    reply_to: str,
+    body: dict,
+) -> None:
+    cid = _decode_correlation_id(raw_message)
+    msg_kwargs: dict = {
+        "body": json.dumps(body, default=str).encode(),
+    }
+    if cid is not None:
+        msg_kwargs["correlation_id"] = cid
+    reply_channel = await rabbitmq.get_channel()
+    try:
+        await reply_channel.default_exchange.publish(
+            aio_pika.Message(**msg_kwargs),
+            routing_key=reply_to,
+        )
+    finally:
+        await reply_channel.close()
+
+
+async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
+    """Run one pipeline step. Sends RPC reply when the incoming message has reply_to."""
     step = None
+    reply_to = _decode_reply_to(raw_message)
+
     try:
         step = msg.get("step")
         payload = msg.get("payload")
+
         if step == EXTRACT_AUDIO:
             logger.info(f"[TASK HANDLER] Starting task - step: {step}")
-            await handle_extract_audio(payload)
-        else:
-            logger.error(f"[TASK HANDLER] No handler for step: {step}")
+            result = await handle_extract_audio(payload)
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        logger.error(f"[TASK HANDLER] No handler for step: {step}")
+        if reply_to:
+            await _publish_task_reply(
+                raw_message,
+                reply_to,
+                {
+                    "status": "error",
+                    "step": step,
+                    "error": f"No handler for step: {step}",
+                },
+            )
+        return
+
     except Exception as e:
         logger.error(
             f"[TASK HANDLER] Task failed - step: {step}, error: {str(e)}",
             exc_info=True,
         )
+        if reply_to:
+            await _publish_task_reply(
+                raw_message,
+                reply_to,
+                {"status": "error", "step": step, "error": str(e)},
+            )
+            return
         raise
 
 
