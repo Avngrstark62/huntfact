@@ -1,10 +1,12 @@
 from services.audio_extractor import extract_audio
 from services.transcriber.openai import transcribe_audio
+from services.translator.translator import translate_text
 from services.reel_extractor import get_reel_video_url
 
 import time
 from datetime import datetime
 import asyncio
+from pathlib import Path
 
 # url = "https://www.instagram.com/reel/DWwYeJkiXSO"
 # url = "https://www.instagram.com/reel/DWWNjCajCcK"
@@ -32,19 +34,31 @@ async def main():
     else:
         audio = result.get("audio")
         fmt = result.get("format", "mp3")
-        final_result = await transcribe_audio(audio, fmt)
+        transcript_text = await transcribe_audio(audio, fmt)
         elapsed = (time.time() - start_time) * 1000
         print(f"✓ transcribe_audio took {elapsed:.2f}ms")
 
-        # Create filename (timestamped to avoid overwrite)
-        filename = f"transcription_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        # Save plain transcript text
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(final_result or "")
+        translated_text = await translate_text(transcript_text or "")
+        elapsed = (time.time() - start_time) * 1000
+        print(f"✓ translate_text took {elapsed:.2f}ms")
 
-        print(f"✓ Saved transcription to {filename}")
-        # print(text)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        transcriptions_dir = Path("transcriptions")
+        translations_dir = Path("translations")
+        transcriptions_dir.mkdir(parents=True, exist_ok=True)
+        translations_dir.mkdir(parents=True, exist_ok=True)
+
+        transcription_file = transcriptions_dir / f"transcription_{timestamp}.txt"
+        translation_file = translations_dir / f"translation_{timestamp}.txt"
+
+        with transcription_file.open("w", encoding="utf-8") as f:
+            f.write(transcript_text or "")
+
+        with translation_file.open("w", encoding="utf-8") as f:
+            f.write(translated_text or "")
+
+        print(f"✓ Saved transcription to {transcription_file}")
+        print(f"✓ Saved translation to {translation_file}")
 
 if __name__ == "__main__":
     asyncio.run(main())

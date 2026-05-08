@@ -213,3 +213,5 @@ serviceAccountKey.json
 translation_files/*
 
 temp/*
+translations/*
+transcriptions/*
