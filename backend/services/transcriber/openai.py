@@ -3,6 +3,7 @@ Audio transcription service using OpenAI's Whisper API.
 Handles audio bytes and returns transcribed text.
 """
 
+import asyncio
 import io
 from typing import Optional
 
@@ -14,9 +15,9 @@ from logging_config import get_logger
 logger = get_logger("services.transcriber.transcriber")
 
 
-def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
+async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
     """
-    Transcribe audio bytes to text using OpenAI's Whisper API.
+    Transcribe audio bytes using OpenAI Whisper API.
 
     Args:
         audio_bytes: raw bytes from extract_audio
@@ -27,7 +28,7 @@ def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
 
     Raises:
         ValueError: if audio_bytes is empty or invalid
-        OpenAIError: if OpenAI API call fails
+: if OpenAI API call fails
     """
     if not audio_bytes:
         error_msg = "audio_bytes cannot be empty"
@@ -39,10 +40,9 @@ def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    # Map extension properly
-    ext = "aac" if fmt == "aac" else "mp3"
-
     try:
+        ext = "aac" if fmt == "aac" else "mp3"
+
         # Wrap bytes as file-like object
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = f"audio.{ext}"
@@ -52,9 +52,10 @@ def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         # Initialize client with API key from config
         client = OpenAI(api_key=settings.openai_api_key)
 
-        transcript = client.audio.transcriptions.create(
+        transcript = await asyncio.to_thread(
+            client.audio.transcriptions.create,
             model="whisper-1",
-            file=audio_file
+            file=audio_file,
         )
 
         result = transcript.text

@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     openai_api_key: str
 
     # Transcriber service settings
-    transcriber_model: str = "gpt-4o-audio-preview"
+    transcriber_model: str = "gpt-4o-transcribe"
     transcriber_max_retries: int = 3
     transcriber_retry_delay_seconds: float = 1.0
     transcriber_max_retry_delay_seconds: float = 32.0
@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     ]
     deepgram_api_key: str = "deepgram_api_key"
     assemblyai_api_key: str = "assemblyai_api_key"
+    azure_speech_key: str = ""
+    azure_speech_region: str = ""
+    azure_speech_language: str = "en-US"
+    azure_transcription_timeout_seconds: int = 300
+    azure_speech_batch_api_version: str = "v3.2"
+    azure_batch_poll_interval_seconds: int = 5
+    azure_batch_input_container_sas_url: str = ""
 
     # Claim extraction service settings
     claim_extraction_model_provider: str = "openai"

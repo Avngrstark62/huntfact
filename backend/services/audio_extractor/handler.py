@@ -2,24 +2,19 @@ from typing import Optional
 import base64
 from logging_config import get_logger
 from services.audio_extractor.audio_extractor import extract_audio
-from rmq.schemas import TaskMessage
-from rmq.constants import TRANSCRIBE
 
 logger = get_logger("services.audio_extractor.handler")
 
 
-async def handle_extract_audio(payload: dict | None = None) -> Optional[TaskMessage]:
+async def handle_extract_audio(payload: dict | None = None) -> Optional[bool]:
     """
-    Extract audio from URL stored in job state.
-    
-    Extracts audio using the cdn_link from the state and returns updated state
-    with audio extraction result, along with the next task message.
+    Extract audio from URL given with payload.
     
     Args:
-        job_state: Current job state dict
+        payload: dict containing the cdn_link for audio extraction.
     
     Returns:
-        Tuple of (updated_state, next_task_message)
+        bool: True if audio extraction was successful, False otherwise.
     """
     logger.info(f"Starting audio extraction")
     

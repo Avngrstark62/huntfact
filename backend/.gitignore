@@ -211,3 +211,5 @@ agents/test_extractor.py
 
 serviceAccountKey.json
 translation_files/*
+
+temp/*
