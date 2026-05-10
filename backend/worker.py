@@ -80,6 +80,40 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
         if step == EXTRACT_AUDIO:
             logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_extract_audio(payload)
+            if result is None:
+                raise RuntimeError("Audio extraction handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == TRANSCRIBE:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_transcribe(payload)
+            if result is None:
+                raise RuntimeError("Transcription handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == TRANSLATE:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_translate(payload)
+            if result is None:
+                raise RuntimeError("Translation handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
             if reply_to:
                 await _publish_task_reply(
                     raw_message,

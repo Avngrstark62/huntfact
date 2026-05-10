@@ -6,7 +6,7 @@ from services.audio_extractor.audio_extractor import extract_audio
 logger = get_logger("services.audio_extractor.handler")
 
 
-async def handle_extract_audio(payload: dict | None = None) -> Optional[bool]:
+async def handle_extract_audio(payload: dict | None = None) -> Optional[dict]:
     """
     Extract audio from URL given with payload.
     
@@ -14,11 +14,11 @@ async def handle_extract_audio(payload: dict | None = None) -> Optional[bool]:
         payload: dict containing the cdn_link for audio extraction.
     
     Returns:
-        bool: True if audio extraction was successful, False otherwise.
+        dict containing base64 audio, format and error.
     """
     logger.info(f"Starting audio extraction")
     
-    cdn_link = payload.get("cdn_link")
+    cdn_link = (payload or {}).get("cdn_link")
     
     if not cdn_link:
         logger.error(f"No cdn_link found in the payload")
@@ -35,8 +35,16 @@ async def handle_extract_audio(payload: dict | None = None) -> Optional[bool]:
     
     if result.get("error"):
         logger.error(f"Audio extraction failed, error: {result.get('error')}")
-        return None
+        return {
+            "audio_bytes_b64": None,
+            "audio_format": result.get("format"),
+            "error": result.get("error"),
+        }
     
     logger.info(f"Audio extraction completed successfully")
     
-    return True
+    return {
+        "audio_bytes_b64": audio_bytes_b64,
+        "audio_format": result.get("format"),
+        "error": None,
+    }

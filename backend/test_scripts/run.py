@@ -15,7 +15,9 @@ from pathlib import Path
 # url = "https://www.instagram.com/reel/DTVPPD_EtOJ"
 # url = "https://www.instagram.com/reels/DVno2XZElSu"
 # url = "https://www.instagram.com/reels/DWtydO4Essb"
-url = "https://www.instagram.com/reels/DXHSbajAh9j"
+# url = "https://www.instagram.com/reels/DXHSbajAh9j"
+# url = "https://www.instagram.com/reel/DX-wL9IxoiV/"
+url = "https://www.instagram.com/reel/DYGL3ueDssS"
 
 async def main():
     start_time = time.time()

@@ -8,7 +8,7 @@ from rmq.connection import rabbitmq
 from rmq.consumer import start_workflow_consumer
 from rmq.schemas import WorkflowMessage, TaskMessage
 from rmq.publisher import publish_task_rpc
-from rmq.constants import EXTRACT_AUDIO
+from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE
 
 logger = get_logger("workflow_orchestrator")
 
@@ -24,25 +24,54 @@ async def handle_workflow_message(msg: dict) -> None:
             cdn_link,
         )
 
-        # audio extraction via RPC publish so orchestrator can observe completion.
-        rpc_response = await publish_task_rpc(TaskMessage(
-            step=EXTRACT_AUDIO,
-            priority=1,
-            payload={"cdn_link": cdn_link},
-            ))
+        extract_response = await publish_task_rpc(
+            TaskMessage(
+                step=EXTRACT_AUDIO,
+                priority=1,
+                payload={"cdn_link": cdn_link},
+            )
+        )
+        if extract_response.get("status") != "success":
+            raise RuntimeError(f"EXTRACT_AUDIO failed: {extract_response}")
+        extract_result = extract_response.get("result") or {}
 
-        status = rpc_response.get("status")
-        response_step = rpc_response.get("step")
-        response_result = rpc_response.get("result")
-        result_type = type(response_result).__name__
-        result_size = len(response_result) if isinstance(response_result, (bytes, str, list, dict)) else None
+        logger.info("EXTRACT_AUDIO completed")
+
+        transcribe_response = await publish_task_rpc(
+            TaskMessage(
+                step=TRANSCRIBE,
+                priority=2,
+                payload={
+                    "audio_bytes_b64": extract_result.get("audio_bytes_b64"),
+                    "audio_format": extract_result.get("audio_format"),
+                },
+            )
+        )
+        if transcribe_response.get("status") != "success":
+            raise RuntimeError(f"TRANSCRIBE failed: {transcribe_response}")
+        transcribe_result = transcribe_response.get("result") or {}
+
+        logger.info(f"TRANSCRIBE completed: {transcribe_result}")
+
+        translate_response = await publish_task_rpc(
+            TaskMessage(
+                step=TRANSLATE,
+                priority=3,
+                payload={
+                    "transcript_text": transcribe_result.get("transcript_text"),
+                },
+            )
+        )
+        if translate_response.get("status") != "success":
+            raise RuntimeError(f"TRANSLATE failed: {translate_response}")
+        translate_result = translate_response.get("result") or {}
+        logger.info(f"TRANSLATE completed: {translate_result}")
+
         logger.info(
-            "RPC result workflow_id=%s status=%s step=%s result_type=%s result_size=%s",
+            "Workflow RPC chain completed: workflow_id=%s transcript_chars=%s translated_chars=%s",
             workflow_id,
-            status,
-            response_step,
-            result_type,
-            result_size,
+            len(transcribe_result.get("transcript_text") or ""),
+            len(translate_result.get("translated_text") or ""),
         )
 
     except Exception as e:

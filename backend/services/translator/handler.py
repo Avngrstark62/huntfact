@@ -1,43 +1,36 @@
 from typing import Optional
 from logging_config import get_logger
-from services.translator.translator import translate_utterances
-from rmq.schemas import TaskMessage
-from rmq.constants import EXTRACT_QUESTIONS_QUERIES
-from rmq_redis import job_repository
+from services.translator.translator import translate_text
 
 logger = get_logger("services.translator.handler")
 
 
-async def handle_translate(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
+async def handle_translate(payload: dict | None = None) -> Optional[dict]:
     """
-    Translate utterances to English.
-    
-    Translates utterances from the state and returns updated state
-    with translated utterances stored as utterances_english, along with the next task message.
-    
-    Args:
-        job_id: Unique job identifier
-        job_state: Current job state dict
-    
-    Returns:
-        Tuple of (updated_state, next_task_message)
-    """
-    logger.info(f"Starting translation for job: {job_id}")
-    
-    # Get utterances from state
-    utterances = job_repository.get_utterances(job_id)
-    
-    if not utterances:
-        logger.error(f"No utterances found in job state for job_id: {job_id}")
-        return None
-    
-    logger.info(f"Translating {len(utterances)} utterances for job_id: {job_id}")
-    
-    # Translate utterances
-    translated_utterances = await translate_utterances(utterances)
-    
-    job_repository.set_utterances_en(job_id, translated_utterances)
-    
-    logger.info(f"Translation completed for job_id: {job_id}")    
+    Translate transcript text to English.
 
-    return True
+    Args:
+        payload: dict containing transcript_text.
+
+    Returns:
+        dict containing translated_text and error.
+    """
+    logger.info("Starting translation")
+    
+    transcript_text = (payload or {}).get("transcript_text")
+    
+    if not transcript_text:
+        logger.error("No transcript_text found in payload")
+        return {"translated_text": None, "error": "No transcript_text found in payload"}
+    
+    logger.info(f"Translating transcript text ({len(transcript_text)} chars)")
+    
+    translated_text = await translate_text(transcript_text)
+    
+    if not translated_text:
+        logger.error("Translation failed")
+        return {"translated_text": None, "error": "Translation failed"}
+    
+    logger.info("Translation completed")
+
+    return {"translated_text": translated_text, "error": None}
