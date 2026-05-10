@@ -11,6 +11,7 @@ from rmq.publisher import publish_task_rpc
 from rmq.constants import EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE
 
 logger = get_logger("workflow_orchestrator")
+EXTRACT_CLAIM_CLUSTERS = "EXTRACT_CLAIM_CLUSTERS"
 
 async def handle_workflow_message(msg: dict) -> None:
     try:
@@ -67,11 +68,26 @@ async def handle_workflow_message(msg: dict) -> None:
         translate_result = translate_response.get("result") or {}
         logger.info(f"TRANSLATE completed: {translate_result}")
 
+        claim_extract_response = await publish_task_rpc(
+            TaskMessage(
+                step=EXTRACT_CLAIM_CLUSTERS,
+                priority=4,
+                payload={
+                    "content": translate_result.get("translated_text"),
+                },
+            )
+        )
+        if claim_extract_response.get("status") != "success":
+            raise RuntimeError(f"EXTRACT_CLAIM_CLUSTERS failed: {claim_extract_response}")
+        claim_extract_result = claim_extract_response.get("result") or {}
+        logger.info(f"EXTRACT_CLAIM_CLUSTERS completed: {claim_extract_result}")
+
         logger.info(
-            "Workflow RPC chain completed: workflow_id=%s transcript_chars=%s translated_chars=%s",
+            "Workflow RPC chain completed: workflow_id=%s transcript_chars=%s translated_chars=%s clusters=%s",
             workflow_id,
             len(transcribe_result.get("transcript_text") or ""),
             len(translate_result.get("translated_text") or ""),
+            len(claim_extract_result.get("clusters") or []),
         )
 
     except Exception as e:
