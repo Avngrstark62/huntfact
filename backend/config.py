@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # cheap_model: str = "gpt-4o-mini"
     llm_debug: bool = False
 
+    # URL fetcher (SearxNG) settings
+    searxng_search_url: str = "http://localhost:8080/search"
+    searxng_timeout_seconds: int = 10
+
     # Redis settings
     redis_host: str = "localhost"
     redis_port: int = 6379

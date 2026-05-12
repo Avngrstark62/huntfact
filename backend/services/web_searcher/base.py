@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Generic, Literal, TypeVar
 from lxml import html
 from lxml.etree import HTMLParser as LHTMLParser
 
+from services.web_searcher.exceptions import DDGSException
 from services.web_searcher.http_client import HttpClient
 from services.web_searcher.results import BooksResult, ImagesResult, NewsResult, TextResult, VideosResult
 
@@ -67,7 +68,12 @@ class BaseSearchEngine(ABC, Generic[T]):
         resp = self.http_client.request(*args, **kwargs)
         if resp.status_code == 200:
             return resp.text
-        return None
+        body_preview = " ".join((resp.text or "").split())[:240]
+        msg = (
+            f"{self.name} request failed with HTTP {resp.status_code}. "
+            f"response_preview='{body_preview}'"
+        )
+        raise DDGSException(msg)
 
     @cached_property
     def parser(self) -> LHTMLParser:
@@ -119,6 +125,14 @@ class BaseSearchEngine(ABC, Generic[T]):
         else:
             html_text = self.request(self.search_method, self.search_url, data=payload)
         if not html_text:
-            return None
+            raise DDGSException(
+                f"{self.name} returned empty response body for query='{query}'"
+            )
         results = self.extract_results(html_text)
+        if not results:
+            html_preview = " ".join(html_text.split())[:240]
+            raise DDGSException(
+                f"{self.name} parsed 0 results for query='{query}'. "
+                f"html_preview='{html_preview}'"
+            )
         return self.post_extract_results(results)

@@ -17,6 +17,7 @@ from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
 from services.claim_extractor.handler import handle_extract_claim_clusters
+from services.url_fetcher.handler import handle_url_fetcher
 from services.extract_questions_queries.handler import handle_extract_questions_queries
 from services.fetch_urls.handler import handle_fetch_urls
 from services.select_urls.handler import handle_select_urls
@@ -29,6 +30,7 @@ from services.notification_sender.handler import handle_notify
 
 logger = get_logger("rmq.worker")
 EXTRACT_CLAIM_CLUSTERS = "EXTRACT_CLAIM_CLUSTERS"
+URL_FETCHER = "URL_FETCHER"
 
 
 def _decode_reply_to(raw_message: aio_pika.IncomingMessage) -> str | None:
@@ -129,6 +131,21 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
             result = await handle_extract_claim_clusters(payload)
             if result is None:
                 raise RuntimeError("Claim cluster extraction handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == URL_FETCHER:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_url_fetcher(payload)
+            if result is None:
+                raise RuntimeError("URL fetcher handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
             if reply_to:
