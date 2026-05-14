@@ -12,7 +12,6 @@ from rmq.schemas import TaskMessage, WorkflowMessage
 from rmq.constants import NOTIFY
 from health import is_system_healthy, check_health_dependency
 from auth.supabase_auth import AuthenticatedUser, get_authenticated_user
-from rmq_redis import job_repository
 
 logger = get_logger("router")
 router = APIRouter()
@@ -71,21 +70,13 @@ async def start_hunt(
         if existing_hunt and existing_hunt.result:
             logger.info(f"Hunt already exists for video: {request.video_link} and has result")
 
-            job_repository.init_job(
-                job_id,
-                {
-                "hunt_id": existing_hunt.id,
-                "fcm_token": request.fcm_token,
-                },
-                ttl=86400,
-            )
-            job_repository.set_result(job_id, existing_hunt.result)
-            logger.info(f"Initialized split job state in Redis for job_id: {job_id}, hunt_id: {existing_hunt.id}")
-
             task = TaskMessage(
                 step=NOTIFY,
-                priority=12,
-                payload={}
+                priority=9,
+                payload={
+                    "fcm_token": request.fcm_token,
+                    "hunt_id": existing_hunt.id,
+                }
             )
             await publish_task(task)
             logger.info(f"Task published: {task.step}")

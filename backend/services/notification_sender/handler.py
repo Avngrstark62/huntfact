@@ -1,36 +1,31 @@
-from typing import Optional
+from typing import Any, Optional
 from logging_config import get_logger
 from services.notification_sender.notification_sender import send_notification
-from rmq.schemas import TaskMessage
-from rmq_redis import job_repository
 
 logger = get_logger("services.notification_sender.handler")
 
 
-async def handle_notify(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
+async def handle_notify(payload: dict[str, Any] | None = None) -> Optional[dict]:
     """
-    Send FCM notification with final result.
-    
-    Takes result and fcm_token from job state and sends notification to Android app.
-    No next task - this is the final step.
+    Send completion notification using hunt_id and fcm_token from payload.
     """
-    logger.info(f"Starting notification for job: {job_id}")
-    
-    result = job_repository.get_utterances_en(job_id)
-    fcm_token = job_repository.get_meta_fields(job_id, ["fcm_token"]).get("fcm_token")
-    
-    if not result:
-        logger.error(f"No result found in job state for job_id: {job_id}")
-        return None
-    
-    if not fcm_token:
-        logger.error(f"No fcm_token found in job state for job_id: {job_id}")
-        return None
-    
-    logger.info(f"Sending notification for job_id: {job_id}")
-    
-    await send_notification(result, fcm_token)
-    
-    logger.info(f"Notification sent for job_id: {job_id}")
-    
-    return True
+    logger.info("Starting notification sender service")
+
+    raw_hunt_id = (payload or {}).get("hunt_id")
+    fcm_token = (payload or {}).get("fcm_token")
+
+    if not isinstance(raw_hunt_id, int):
+        logger.error("Missing or invalid hunt_id in payload")
+        return {"sent": False, "error": "Missing or invalid hunt_id in payload"}
+
+    if not isinstance(fcm_token, str) or not fcm_token.strip():
+        logger.error("No valid fcm_token found in payload")
+        return {"sent": False, "error": "No valid fcm_token found in payload"}
+
+    send_result = await send_notification(raw_hunt_id, fcm_token)
+    if send_result.get("error"):
+        logger.error("Notification sender failed: %s", send_result.get("error"))
+        return send_result
+
+    logger.info("Notification sent successfully")
+    return {"sent": True, "error": None}

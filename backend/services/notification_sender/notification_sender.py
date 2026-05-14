@@ -1,48 +1,43 @@
-from typing import Dict, Any
-import json
+from typing import Dict
 from logging_config import get_logger
 
 logger = get_logger("services.notification_sender.notification_sender")
 
 
-async def send_notification(result: Dict[str, Any], fcm_token: str) -> None:
+async def send_notification(hunt_id: int, fcm_token: str) -> Dict[str, str | bool | None]:
     """
-    Send FCM notification with result to Android app.
-    
-    Takes the final result and fcm_token, sends a notification to the Android app
-    via Firebase Cloud Messaging.
-    
+    Send lightweight completion notification with hunt id.
+
     Args:
-        result: Final result dictionary with verdict, confidence, explanation, sources
+        hunt_id: Hunt id for fetching result from API later.
         fcm_token: FCM token of the Android device
+
+    Returns:
+        Dict with sent status and error.
     """
-    logger.info(f"Sending FCM notification with result to device: {fcm_token}")
-    
+    logger.info("Sending completion notification to device: %s", fcm_token)
+
     try:
         from firebase_admin import messaging
-        
-        # Parse result if it's a JSON string
-        if isinstance(result, str):
-            result = json.loads(result)
-        
+
         message = messaging.Message(
             notification=messaging.Notification(
-                title="Hunt Fact Analysis Complete",
-                body=f"Verdict: {result.get('verdict', 'N/A')}"
+                title="Fact check complete",
+                body="Your video has been fact checked successfully. Tap to open.",
             ),
             data={
-                "verdict": result.get("verdict", ""),
-                "confidence": str(result.get("confidence", "")),
-                "explanation": result.get("explanation", ""),
-                "sources": json.dumps(result.get("sources", []))
+                "hunt_id": str(hunt_id),
             },
             token=fcm_token,
         )
-        
+
         response = messaging.send(message)
-        logger.info(f"FCM notification sent successfully, response: {response}")
-        
+        logger.info("FCM notification sent successfully, response: %s", response)
+        return {"sent": True, "error": None}
+
     except ImportError:
         logger.error("Firebase Admin SDK not installed. Install with: pip install firebase-admin")
+        return {"sent": False, "error": "Firebase Admin SDK not installed"}
     except Exception as e:
         logger.error(f"Error sending FCM notification: {e}", exc_info=True)
+        return {"sent": False, "error": str(e)}

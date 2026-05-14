@@ -7,9 +7,15 @@ import aio_pika
 from logging_config import get_logger, setup_logging
 from firebase_config import initialize_firebase
 from rmq.constants import (
-    EXTRACT_AUDIO, TRANSCRIBE, TRANSLATE, EXTRACT_QUESTIONS_QUERIES,
-    FETCH_URLS, SELECT_URLS, FETCH_PAGES, SAVE_DATA_TO_RAG,
-    ANSWER_QUESTIONS, GENERATE_RESULT, SAVE_RESULT_TO_DB, NOTIFY
+    EXTRACT_AUDIO,
+    TRANSCRIBE,
+    TRANSLATE,
+    EXTRACT_CLAIM_CLUSTERS,
+    URL_FETCHER,
+    WEB_SCRAPER,
+    CLAIM_VERIFIER,
+    SAVE_RESULT_TO_DB,
+    NOTIFY,
 )
 from rmq.consumer import start_task_consumer
 from rmq.connection import rabbitmq
@@ -18,19 +24,12 @@ from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
 from services.claim_extractor.handler import handle_extract_claim_clusters
 from services.url_fetcher.handler import handle_url_fetcher
-from services.extract_questions_queries.handler import handle_extract_questions_queries
-from services.fetch_urls.handler import handle_fetch_urls
-from services.select_urls.handler import handle_select_urls
-from services.fetch_pages.handler import handle_fetch_pages
-from services.save_data_to_rag.handler import handle_save_data_to_rag
-from services.answer_questions.handler import handle_answer_questions
-from services.generate_result.handler import handle_generate_result
+from services.web_scraper.handler import handle_web_scraper
+from services.claim_verifier.handler import handle_claim_verifier
 from services.save_result_to_db.handler import handle_save_result_to_db
 from services.notification_sender.handler import handle_notify
 
 logger = get_logger("rmq.worker")
-EXTRACT_CLAIM_CLUSTERS = "EXTRACT_CLAIM_CLUSTERS"
-URL_FETCHER = "URL_FETCHER"
 
 
 def _decode_reply_to(raw_message: aio_pika.IncomingMessage) -> str | None:
@@ -146,6 +145,66 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
             result = await handle_url_fetcher(payload)
             if result is None:
                 raise RuntimeError("URL fetcher handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == WEB_SCRAPER:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_web_scraper(payload)
+            if result is None:
+                raise RuntimeError("Web scraper handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == CLAIM_VERIFIER:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_claim_verifier(payload)
+            if result is None:
+                raise RuntimeError("Claim verifier handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == SAVE_RESULT_TO_DB:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_save_result_to_db(payload)
+            if result is None:
+                raise RuntimeError("save_result_to_db handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == NOTIFY:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_notify(payload)
+            if result is None:
+                raise RuntimeError("notify handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
             if reply_to:
