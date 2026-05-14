@@ -7,16 +7,18 @@ docker run -d \
   -v postgres-data:/var/lib/postgresql/data \
   postgres:16
 
+uv run alembic upgrade head
+
 docker run -d \
   --name rabbitmq \
   -p 5672:5672 \
   -p 15672:15672 \
   rabbitmq:3-management
 
+docker run -d -p 9275:8000 chromadb/chroma
+
 docker run -d \
   --name redis \
   -p 6379:6379 \
   redis:7 \
   redis-server --requirepass yourpassword
-
-docker run -d -p 9275:8000 chromadb/chroma

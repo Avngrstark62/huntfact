@@ -1,31 +1,35 @@
-from typing import Dict, Any
 import json
-from logging_config import get_logger
+from typing import Any, Dict
+
 from db.database import db
+from logging_config import get_logger
 
 logger = get_logger("services.save_result_to_db.save_result_to_db")
 
 
-async def save_result_to_db(hunt_id: int, result: Dict[str, Any]) -> None:
+async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Save result to database.
-    
-    Takes the hunt_id and result, stores it in the database as JSON.
-    
+    Persist claim verifier table in hunts.result as a JSON string.
+
     Args:
-        hunt_id: Hunt ID to associate with the result
-        result: Final result dictionary with verdict, confidence, explanation, sources
+        hunt_id: Target hunt id.
+        table: Structured claim-verifier result table.
+
+    Returns:
+        Dict with save metadata.
     """
-    logger.info(f"Saving result to database for hunt_id: {hunt_id}")
-    
+    serialized_result = json.dumps(table, ensure_ascii=False)
+    session = db.SessionLocal()
+
     try:
-        session = db.SessionLocal()
-        
-        result_json = json.dumps(result)
-        db.update_hunt_result(session, hunt_id, result_json)
-        
-        logger.info(f"Result saved successfully for hunt_id: {hunt_id}")
+        updated_hunt = db.update_hunt_result(session, hunt_id, serialized_result)
+        if not updated_hunt:
+            raise RuntimeError(f"Hunt not found for hunt_id={hunt_id}")
+
+        logger.info(f"Saved result table to DB for hunt_id: {hunt_id}")
+        return {
+            "hunt_id": hunt_id,
+            "result": serialized_result,
+        }
+    finally:
         session.close()
-    except Exception as e:
-        logger.error(f"Error saving result to database: {e}", exc_info=True)
-        raise

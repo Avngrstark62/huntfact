@@ -1,43 +1,38 @@
-from typing import Optional
+from typing import Any, Optional
+
 from logging_config import get_logger
 from services.save_result_to_db.save_result_to_db import save_result_to_db
-from rmq.schemas import TaskMessage
-from rmq.constants import NOTIFY
-from rmq_redis import job_repository
 
 logger = get_logger("services.save_result_to_db.handler")
 
 
-async def handle_save_result_to_db(job_id: str, payload: dict | None = None) -> Optional[TaskMessage]:
+async def handle_save_result_to_db(payload: dict[str, Any] | None = None) -> Optional[dict]:
     """
-    Save result to database.
-    
-    Takes result from job state and saves it to the database using hunt_id from state.
+    Save claim-verifier table in DB using explicit payload input.
+
+    Expected payload:
+        {
+            "hunt_id": <int>,
+            "table": <dict>
+        }
     """
-    logger.info(f"Starting save result to database for job: {job_id}")
-    
-    result = job_repository.get_result(job_id)
-    hunt_id = job_repository.get_meta_fields(job_id, ["hunt_id"]).get("hunt_id")
-    
-    if not result:
-        logger.error(f"No result found in job state for job_id: {job_id}")
-        return None
-    
-    if not hunt_id:
-        logger.error(f"No hunt_id found in job state for job_id: {job_id}")
-        return None
-    
-    logger.info(f"Saving result for job_id: {job_id}, hunt_id: {hunt_id}")
-    
-    await save_result_to_db(int(hunt_id), result)
-    
-    logger.info(f"Result saved for job_id: {job_id}")
-    
-    task = TaskMessage(
-        job_id=job_id,
-        step=NOTIFY,
-        priority=12,
-        payload={}
-    )
-    
-    return task
+    logger.info("Starting save_result_to_db service")
+
+    raw_hunt_id = (payload or {}).get("hunt_id")
+    table = (payload or {}).get("table")
+
+    if not isinstance(raw_hunt_id, int):
+        logger.error("Missing or invalid hunt_id in payload")
+        return {"saved": None, "error": "Missing or invalid hunt_id in payload"}
+
+    if not isinstance(table, dict):
+        logger.error("Missing or invalid table in payload")
+        return {"saved": None, "error": "Missing or invalid table in payload"}
+
+    try:
+        saved = await save_result_to_db(raw_hunt_id, table)
+        logger.info(f"save_result_to_db service completed for hunt_id: {raw_hunt_id}")
+        return {"saved": saved, "error": None}
+    except Exception as e:
+        logger.error(f"save_result_to_db service failed: {str(e)}", exc_info=True)
+        return {"saved": None, "error": str(e)}
