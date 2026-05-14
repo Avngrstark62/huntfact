@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     google_api_key: str
     openai_api_key: str
+    firecrawl_api_key: str = ""
 
     # Transcriber service settings
     transcriber_model: str = "gpt-4o-transcribe"

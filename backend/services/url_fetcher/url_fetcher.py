@@ -42,7 +42,7 @@ async def _generate_web_queries(claims: List[str]) -> List[str]:
 
 Your task:
 - Produce the minimum number of search-engine queries needed to verify all claims.
-- Return at least 1 and at most 5 queries.
+- Return at least 1 and at most 3 queries.
 - Queries should be practical Google-style searches likely to surface authoritative context pages.
 - Prefer concise keyword-focused phrasing.
 - Include key entities, dates, locations, and claim-specific terms when needed.

@@ -10,14 +10,16 @@ from pathlib import Path
 
 # url = "https://www.instagram.com/reel/DWwYeJkiXSO"
 # url = "https://www.instagram.com/reel/DWWNjCajCcK"
-# url = "https://www.instagram.com/reel/DUFL0xADGDL"
-# url = "https://www.instagram.com/reel/DWBrc8Ij6si"
+# url = "https://www.instagram.com/reel/DUFL0xADGDL" #copyright
+url = "https://www.instagram.com/reel/DWBrc8Ij6si" # asharam
+# url = "https://www.instagram.com/reel/DSboVcfEXdF" # panini
+# url = "https://www.instagram.com/reel/DSxQa3Nj7sd" # nehru beef
 # url = "https://www.instagram.com/reel/DTVPPD_EtOJ"
 # url = "https://www.instagram.com/reels/DVno2XZElSu"
 # url = "https://www.instagram.com/reels/DWtydO4Essb"
 # url = "https://www.instagram.com/reels/DXHSbajAh9j"
 # url = "https://www.instagram.com/reel/DX-wL9IxoiV/"
-url = "https://www.instagram.com/reel/DYGL3ueDssS"
+# url = "https://www.instagram.com/reel/DYGL3ueDssS"
 
 async def main():
     start_time = time.time()
