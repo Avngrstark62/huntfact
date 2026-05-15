@@ -2,13 +2,19 @@ package com.example.android.workers
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.example.android.MainActivity
+import com.example.android.ResultActivity
 import com.example.android.extraction.ReelExtractor
+import com.example.android.hunts.HuntItem
+import com.example.android.hunts.HuntRepository
 import com.example.android.network.RetrofitClient
 import com.example.android.network.StartHuntRequest
 import com.example.android.utils.AuthSessionManager
@@ -32,11 +38,10 @@ class ReelProcessingWorker(
 
             Log.d(TAG, "🔍 Starting to process reel: $reelUrl")
 
-            // Extract CDN URL
             Log.d(TAG, "📹 Extracting CDN URL from Instagram...")
             val cdnUrl = ReelExtractor.extractCdnUrl(reelUrl)
             if (cdnUrl.isNullOrEmpty()) {
-                Log.e(TAG, "❌ Failed to extract CDN URL from reel")
+                Log.e(TAG, "❌ Failed to extract CDN URL from shared URL")
                 showErrorNotification()
                 return Result.retry()
             }
@@ -70,15 +75,38 @@ class ReelProcessingWorker(
             val request = StartHuntRequest(
                 video_link = cleanedReelUrl,
                 cdn_link = cdnUrl,
-                fcm_token = fcmToken
+                fcm_token = fcmToken,
+                thumbnail_url = cleanedReelUrl,
+                caption = cleanedReelUrl,
+                creator_handle = "unknown_creator",
+                platform = "instagram",
             )
 
             return try {
                 val response = apiService.startHunt(request)
                 if (response.success) {
+                    val huntItem = HuntItem(
+                        id = response.hunt_id,
+                        videoLink = cleanedReelUrl,
+                        status = response.status,
+                        result = response.result,
+                        thumbnailUrl = cleanedReelUrl,
+                        caption = cleanedReelUrl,
+                        creatorHandle = "unknown_creator",
+                        platform = "instagram",
+                        errorMessage = null,
+                        createdAt = null,
+                        updatedAt = null,
+                        completedAt = null,
+                    )
+                    HuntRepository(applicationContext).upsertLocal(huntItem)
                     Log.d(TAG, "✅ Successfully sent to HuntFact backend!")
                     Log.d(TAG, "📨 Response: ${response.message}")
-                    showSuccessNotification("Sent to HuntFact", "Your reel is being fact-checked!")
+                    showSuccessNotification(
+                        title = "Claim check started",
+                        message = "We received your reel and started fact-checking.",
+                        huntId = response.hunt_id,
+                    )
                     Result.success()
                 } else {
                     Log.e(TAG, "❌ Backend API returned error: ${response.message}")
@@ -97,7 +125,7 @@ class ReelProcessingWorker(
         }
     }
 
-    private fun showSuccessNotification(title: String, message: String) {
+    private fun showSuccessNotification(title: String, message: String, huntId: Int) {
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "reel_success_channel"
 
@@ -110,10 +138,34 @@ class ReelProcessingWorker(
             notificationManager.createNotificationChannel(channel)
         }
 
+        val openIntent = Intent(applicationContext, ResultActivity::class.java).apply {
+            putExtra(ResultActivity.EXTRA_HUNT_ID, huntId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            applicationContext,
+            huntId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val viewStatusIntent = Intent(applicationContext, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val viewStatusPendingIntent = PendingIntent.getActivity(
+            applicationContext,
+            5000 + huntId,
+            viewStatusIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
+            .setContentIntent(openPendingIntent)
+            .addAction(android.R.drawable.ic_menu_view, "View status", viewStatusPendingIntent)
+            .setGroup("huntfact_hunts")
             .setAutoCancel(true)
             .build()
 

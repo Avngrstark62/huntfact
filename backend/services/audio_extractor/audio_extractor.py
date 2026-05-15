@@ -20,7 +20,7 @@ def _validate_url(url: str) -> bool:
 
 async def extract_audio(
     url: str,
-    timeout: int = 15,
+    timeout: int = 30,
     bitrate: str = "128k"
 ) -> Dict[str, Optional[bytes | str]]:
     """

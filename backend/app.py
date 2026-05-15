@@ -4,6 +4,7 @@ from logging_config import setup_logging, get_logger
 from config import settings
 from router import router
 from db.database import db, Base
+import db.models as db_models  # noqa: F401
 from rmq.connection import rabbitmq
 from firebase_config import initialize_firebase
 from chroma_client import chroma_client

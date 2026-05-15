@@ -1,5 +1,6 @@
 package com.example.android.network
 
+import com.example.android.BuildConfig
 import com.example.android.utils.AuthSessionManager
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -8,7 +9,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 object RetrofitClient {
     private var apiService: ApiService? = null
 
-    fun getApiService(baseUrl: String = "http://10.34.64.60:8000"): ApiService {
+    fun getApiService(baseUrl: String = BuildConfig.BACKEND_BASE_URL): ApiService {
         if (apiService == null) {
             val okHttpClient = OkHttpClient.Builder()
                 .addInterceptor { chain ->
@@ -22,7 +23,7 @@ object RetrofitClient {
                 .build()
 
             val retrofit = Retrofit.Builder()
-                .baseUrl(baseUrl)
+                .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
                 .client(okHttpClient)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()

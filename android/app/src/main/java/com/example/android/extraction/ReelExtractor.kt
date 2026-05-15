@@ -47,7 +47,18 @@ object ReelExtractor {
         }
     }
 
+    data class ReelInfo(
+        val cdnUrl: String,
+        val caption: String?,
+        val thumbnailUrl: String?,
+        val creatorHandle: String?,
+    )
+
     suspend fun extractCdnUrl(reelUrl: String): String? = withContext(Dispatchers.IO) {
+        extractReelInfo(reelUrl)?.cdnUrl
+    }
+
+    suspend fun extractReelInfo(reelUrl: String): ReelInfo? = withContext(Dispatchers.IO) {
         try {
             // Clean the URL first (remove query parameters)
             val cleanedUrl = cleanInstagramUrl(reelUrl)
@@ -190,7 +201,12 @@ object ReelExtractor {
             
             if (videoUrl != null && !videoUrl.isJsonNull) {
                 Log.d(TAG, "Extracted video URL")
-                return@withContext videoUrl.asString
+                return@withContext ReelInfo(
+                    cdnUrl = videoUrl.asString,
+                    caption = null,
+                    thumbnailUrl = null,
+                    creatorHandle = null,
+                )
             }
 
             if (mediaObj.get("is_video")?.asBoolean == true) {

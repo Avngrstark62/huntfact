@@ -6,6 +6,8 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 android {
     namespace = "com.example.android"
     compileSdk = 36
@@ -16,6 +18,9 @@ android {
     val supabaseAnonKey = (project.findProperty("SUPABASE_ANON_KEY") as String?)
         ?: System.getenv("SUPABASE_ANON_KEY")
         ?: ""
+    val backendBaseUrl = (project.findProperty("BACKEND_BASE_URL") as String?)
+        ?: System.getenv("BACKEND_BASE_URL")
+        ?: "http://10.34.64.60:8000/"
 
     defaultConfig {
         applicationId = "com.example.android"
@@ -27,6 +32,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        buildConfigField("String", "BACKEND_BASE_URL", "\"$backendBaseUrl\"")
     }
 
     buildTypes {
@@ -42,12 +48,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
-    kotlinOptions {
-        jvmTarget = "21"
-    }
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_21)
     }
 }
 

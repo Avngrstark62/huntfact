@@ -10,23 +10,40 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.android.R
 import com.example.android.ResultActivity
+import com.example.android.hunts.HuntRepository
+import com.example.android.hunts.toHuntItem
+import com.example.android.network.RetrofitClient
+import com.example.android.utils.FcmTokenManager
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class FactCheckMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         Log.d(TAG, "Message received from: ${remoteMessage.from}")
 
-        val title = remoteMessage.notification?.title ?: "Fact Check Ready"
-        val body = remoteMessage.notification?.body ?: "Your fact check is ready"
-        
-        val verdict = remoteMessage.data["verdict"] ?: ""
-        val confidence = remoteMessage.data["confidence"] ?: ""
-        val explanation = remoteMessage.data["explanation"] ?: ""
-        val sources = remoteMessage.data["sources"] ?: "[]"
+        val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "Fact check ready"
+        val body = remoteMessage.notification?.body ?: remoteMessage.data["body"] ?: "Your reel has been fact-checked."
+        val huntId = remoteMessage.data["hunt_id"]?.toIntOrNull()
 
-        showNotification(title, body, verdict, confidence, explanation, sources)
+        if (huntId == null) {
+            Log.e(TAG, "Missing hunt_id in push payload")
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val hunt = RetrofitClient.getApiService().getHunt(huntId).toHuntItem()
+                HuntRepository(applicationContext).upsertLocal(hunt)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to prefetch hunt result: ${e.message}", e)
+            }
+        }
+
+        showNotification(title, body, huntId)
     }
 
     override fun onNewToken(token: String) {
@@ -35,18 +52,14 @@ class FactCheckMessagingService : FirebaseMessagingService() {
     }
 
     private fun saveFcmToken(token: String) {
-        val sharedPref = getSharedPreferences(SHARED_PREF_NAME, Context.MODE_PRIVATE)
-        sharedPref.edit().putString(FCM_TOKEN_KEY, token).apply()
+        FcmTokenManager.saveToken(this, token)
         Log.d(TAG, "FCM token saved: $token")
     }
 
     private fun showNotification(
         title: String,
         body: String,
-        verdict: String,
-        confidence: String,
-        explanation: String,
-        sources: String
+        huntId: Int
     ) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = CHANNEL_ID
@@ -61,16 +74,13 @@ class FactCheckMessagingService : FirebaseMessagingService() {
         }
 
         val resultIntent = Intent(this, ResultActivity::class.java).apply {
-            putExtra("verdict", verdict)
-            putExtra("confidence", confidence)
-            putExtra("explanation", explanation)
-            putExtra("sources", sources)
+            putExtra(ResultActivity.EXTRA_HUNT_ID, huntId)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
         val pendingIntent = PendingIntent.getActivity(
             this,
-            0,
+            huntId,
             resultIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -80,18 +90,16 @@ class FactCheckMessagingService : FirebaseMessagingService() {
             .setContentTitle(title)
             .setContentText(body)
             .setContentIntent(pendingIntent)
+            .setGroup("huntfact_hunts")
             .setAutoCancel(true)
             .build()
 
-        notificationManager.notify(NOTIFICATION_ID, notification)
+        notificationManager.notify(huntId, notification)
     }
 
     companion object {
         private const val TAG = "FactCheckMessagingService"
         private const val CHANNEL_ID = "fact_check_channel"
-        private const val NOTIFICATION_ID = 1
-        private const val SHARED_PREF_NAME = "fact_check_prefs"
-        private const val FCM_TOKEN_KEY = "fcm_token"
     }
 }
 

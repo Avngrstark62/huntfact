@@ -26,7 +26,11 @@ async def send_notification(hunt_id: int, fcm_token: str) -> Dict[str, str | boo
                 body="Your video has been fact checked successfully. Tap to open.",
             ),
             data={
+                "type": "fact_check_completed",
                 "hunt_id": str(hunt_id),
+                "status": "completed",
+                "title": "Fact check complete",
+                "body": "Your reel is ready. Tap to view the result.",
             },
             token=fcm_token,
         )

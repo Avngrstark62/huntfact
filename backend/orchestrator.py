@@ -19,6 +19,7 @@ from rmq.constants import (
     SAVE_RESULT_TO_DB,
     NOTIFY,
 )
+from db.database import db
 
 logger = get_logger("workflow_orchestrator")
 
@@ -212,6 +213,15 @@ async def handle_workflow_message(msg: dict) -> None:
         )
 
     except Exception as e:
+        hunt_id = (msg or {}).get("payload", {}).get("hunt_id")
+        if isinstance(hunt_id, int):
+            session = db.SessionLocal()
+            try:
+                db.update_hunt_status(session, hunt_id, "failed", str(e))
+            except Exception as status_error:
+                logger.error("Failed to update hunt failure status: %s", status_error, exc_info=True)
+            finally:
+                session.close()
         logger.error(
             "Workflow execution failed: %s body=%s",
             e,
