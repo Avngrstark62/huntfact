@@ -54,8 +54,8 @@ class ShareReceiverActivity : AppCompatActivity() {
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Claim check in progress")
-            .setContentText("We received your reel and started fact-checking.")
+            .setContentTitle("Reel received")
+            .setContentText("Preparing your fact-check request.")
             .setContentIntent(createOpenAppPendingIntent())
             .setGroup("huntfact_hunts")
             .setAutoCancel(true)

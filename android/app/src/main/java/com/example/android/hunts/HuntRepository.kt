@@ -4,7 +4,7 @@ import android.content.Context
 import com.example.android.network.RetrofitClient
 
 class HuntRepository(private val context: Context) {
-    private val apiService = RetrofitClient.getApiService()
+    private val apiService = RetrofitClient.getApiService(context = context.applicationContext)
 
     fun getCachedHunts(): List<HuntItem> = HuntLocalStore.readHunts(context)
 

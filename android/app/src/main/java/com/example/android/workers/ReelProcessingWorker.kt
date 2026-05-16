@@ -20,6 +20,7 @@ import com.example.android.network.StartHuntRequest
 import com.example.android.utils.AuthSessionManager
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
+import retrofit2.HttpException
 
 class ReelProcessingWorker(
     context: Context,
@@ -43,7 +44,7 @@ class ReelProcessingWorker(
             if (cdnUrl.isNullOrEmpty()) {
                 Log.e(TAG, "❌ Failed to extract CDN URL from shared URL")
                 showErrorNotification()
-                return Result.retry()
+                return Result.failure()
             }
 
             Log.d(TAG, "✅ Successfully extracted CDN URL")
@@ -51,7 +52,8 @@ class ReelProcessingWorker(
             Log.d(TAG, "🎬 CDN VIDEO URL: $cdnUrl")
             Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-            if (!AuthSessionManager.hasValidSession()) {
+            val accessToken = AuthSessionManager.getAccessToken(applicationContext)
+            if (accessToken.isNullOrBlank()) {
                 Log.e(TAG, "❌ Missing Supabase session, user needs to sign in again")
                 showSignInRequiredNotification()
                 return Result.failure()
@@ -64,13 +66,13 @@ class ReelProcessingWorker(
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to get FCM token: ${e.message}")
                 showErrorNotification()
-                return Result.retry()
+                return Result.failure()
             }
             Log.d(TAG, "✅ FCM token obtained: ${fcmToken.take(20)}...")
 
             // Call backend API
             Log.d(TAG, "📤 Sending reel to HuntFact backend...")
-            val apiService = RetrofitClient.getApiService()
+            val apiService = RetrofitClient.getApiService(context = applicationContext)
             val cleanedReelUrl = ReelExtractor.cleanInstagramUrl(reelUrl)
             val request = StartHuntRequest(
                 video_link = cleanedReelUrl,
@@ -111,17 +113,22 @@ class ReelProcessingWorker(
                 } else {
                     Log.e(TAG, "❌ Backend API returned error: ${response.message}")
                     showErrorNotification()
-                    Result.retry()
+                    Result.failure()
                 }
             } catch (e: Exception) {
+                if (e is HttpException && (e.code() == 401 || e.code() == 403)) {
+                    Log.e(TAG, "❌ Backend rejected auth token: HTTP ${e.code()}")
+                    showSignInRequiredNotification()
+                    return Result.failure()
+                }
                 Log.e(TAG, "❌ API request failed: ${e.message}", e)
                 showErrorNotification()
-                Result.retry()
+                Result.failure()
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Unexpected error in worker: ${e.message}", e)
             showErrorNotification()
-            Result.retry()
+            Result.failure()
         }
     }
 

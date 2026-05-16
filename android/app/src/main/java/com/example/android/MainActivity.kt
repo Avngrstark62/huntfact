@@ -5,56 +5,53 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
-import com.example.android.hunts.HuntItem
-import com.example.android.hunts.HuntRepository
 import com.example.android.ui.theme.AndroidTheme
+import com.example.android.ui.hunts.HuntsScreen
+import com.example.android.ui.hunts.HuntsViewModel
+import com.example.android.ui.profile.ProfileScreen
+import com.example.android.ui.profile.ProfileViewModel
+import com.example.android.ui.resources.ResourcesScreen
+import com.example.android.ui.resources.ResourcesViewModel
 import com.example.android.utils.AuthSessionManager
 import com.example.android.utils.FcmTokenManager
 import com.example.android.utils.SupabaseClientProvider
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-    
+    private val huntsViewModel: HuntsViewModel by viewModels {
+        HuntsViewModel.factory(applicationContext)
+    }
+    private val resourcesViewModel: ResourcesViewModel by viewModels {
+        ResourcesViewModel.factory()
+    }
+    private val profileViewModel: ProfileViewModel by viewModels {
+        ProfileViewModel.factory(applicationContext)
+    }
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -68,22 +65,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         SupabaseClientProvider.handleAuthDeeplink(intent) {
             lifecycleScope.launch {
-                AuthSessionManager.refreshAuthState()
+                AuthSessionManager.refreshAuthState(applicationContext)
             }
         }
         lifecycleScope.launch {
-            AuthSessionManager.refreshAuthState()
+            AuthSessionManager.refreshAuthState(applicationContext)
         }
         
         requestNotificationPermission()
         
         setContent {
             AndroidTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    MainScreen(
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                MainScreen(
+                    huntsViewModel = huntsViewModel,
+                    resourcesViewModel = resourcesViewModel,
+                    profileViewModel = profileViewModel,
+                )
             }
         }
     }
@@ -92,7 +89,8 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         SupabaseClientProvider.handleAuthDeeplink(intent) {
             lifecycleScope.launch {
-                AuthSessionManager.refreshAuthState()
+                huntsViewModel.refreshAuthState()
+                profileViewModel.refreshAuthState()
             }
         }
     }
@@ -123,202 +121,80 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable
-fun MainScreen(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val huntRepository = remember { HuntRepository(context.applicationContext) }
-    val hunts = remember { mutableStateOf<List<HuntItem>>(huntRepository.getCachedHunts()) }
-    val isRefreshing = remember { mutableStateOf(false) }
-    val authMessage = remember { mutableStateOf("") }
-    val authScope = rememberCoroutineScope()
-    val isAuthenticated by AuthSessionManager.isAuthenticated.collectAsState()
+private enum class AppTab(val label: String) {
+    Hunts("Hunts"),
+    Resources("Resources"),
+    Profile("Profile"),
+}
 
-    LaunchedEffect(Unit) {
-        AuthSessionManager.refreshAuthState()
-    }
-    LaunchedEffect(isAuthenticated) {
-        if (isAuthenticated) {
-            authScope.launch {
-                isRefreshing.value = true
-                runCatching { huntRepository.syncHunts() }
-                    .onSuccess { hunts.value = it }
-                    .onFailure { authMessage.value = "Unable to sync hunts." }
-                isRefreshing.value = false
-            }
-        }
-    }
+@Composable
+fun MainScreen(
+    huntsViewModel: HuntsViewModel,
+    resourcesViewModel: ResourcesViewModel,
+    profileViewModel: ProfileViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val huntsUiState by huntsViewModel.uiState.collectAsState()
+    val resourcesUiState by resourcesViewModel.uiState.collectAsState()
+    val profileUiState by profileViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val selectedTab = remember { mutableStateOf(AppTab.Hunts) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, isAuthenticated) {
+
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && isAuthenticated) {
-                authScope.launch {
-                    runCatching { huntRepository.syncHunts() }
-                        .onSuccess { hunts.value = it }
-                }
+            if (event == Lifecycle.Event.ON_RESUME) {
+                huntsViewModel.onResume()
+                huntsViewModel.refreshAuthState()
+                profileViewModel.refreshAuthState()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text("HuntFact")
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (!isAuthenticated) {
-            Button(
-                onClick = {
-                    authScope.launch {
-                        try {
-                            SupabaseClientProvider.signInWithGoogle()
-                            authMessage.value = "Google sign-in started"
-                        } catch (e: Exception) {
-                            Log.e("MainScreen", "Google sign-in failed", e)
-                            authMessage.value = "Sign-in failed. Please try again."
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        bottomBar = {
+            NavigationBar {
+                AppTab.entries.forEach { tab ->
+                    NavigationBarItem(
+                        selected = selectedTab.value == tab,
+                        onClick = { selectedTab.value = tab },
+                        icon = { Text(tab.label.take(1)) },
+                        label = { Text(tab.label) },
+                    )
+                }
+            }
+        },
+    ) { innerPadding ->
+        when (selectedTab.value) {
+            AppTab.Hunts -> HuntsScreen(
+                uiState = huntsUiState,
+                onRefresh = { huntsViewModel.refreshHunts() },
+                onSignIn = { huntsViewModel.signInWithGoogle() },
+                onSignOut = { huntsViewModel.signOut() },
+                onOpenHunt = { hunt ->
+                    context.startActivity(
+                        Intent(context, ResultActivity::class.java).apply {
+                            putExtra(ResultActivity.EXTRA_HUNT_ID, hunt.id)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                    }
+                    )
                 },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Sign in with Google")
-            }
-        }
-
-        if (isAuthenticated) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Signed in. Shared reels appear here.")
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Button(
-                    onClick = {
-                        authScope.launch {
-                            isRefreshing.value = true
-                            runCatching { huntRepository.syncHunts() }
-                                .onSuccess { hunts.value = it }
-                                .onFailure { authMessage.value = "Failed to refresh hunts." }
-                            isRefreshing.value = false
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(if (isRefreshing.value) "Refreshing..." else "Refresh")
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                Button(
-                    onClick = {
-                        authScope.launch {
-                            val signedOut = AuthSessionManager.signOut()
-                            authMessage.value = if (signedOut) {
-                                "Signed out"
-                            } else {
-                                "Sign-out failed. Please try again."
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Sign out")
-                }
-            }
-        }
-
-        if (authMessage.value.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(authMessage.value)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        if (isAuthenticated && isRefreshing.value) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.height(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Syncing hunts...")
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        if (!isAuthenticated) {
-            Text("Sign in to view your hunt history.")
-            return@Column
-        }
-
-        if (hunts.value.isEmpty()) {
-            Text("No reels yet. Share an Instagram reel to HuntFact and it will appear here.")
-            return@Column
-        }
-
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(hunts.value) { hunt ->
-                HuntCard(
-                    hunt = hunt,
-                    onOpen = {
-                        context.startActivity(
-                            Intent(context, ResultActivity::class.java).apply {
-                                putExtra(ResultActivity.EXTRA_HUNT_ID, hunt.id)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                        )
-                    },
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun HuntCard(hunt: HuntItem, onOpen: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpen() }
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            val caption = hunt.caption?.takeIf { it.isNotBlank() } ?: hunt.videoLink
-            Text(caption)
-            Spacer(modifier = Modifier.height(8.dp))
-            AssistChip(
-                onClick = onOpen,
-                label = { Text(hunt.status.replaceFirstChar { it.uppercase() }) },
+                modifier = Modifier.padding(innerPadding),
             )
-            hunt.creatorHandle?.let {
-                if (it.isNotBlank()) {
-                    Text("Creator: @$it")
-                }
-            }
-            hunt.thumbnailUrl?.let {
-                if (it.isNotBlank()) {
-                    Text("Thumbnail saved")
-                }
-            }
-            if (hunt.status == "completed" && !hunt.result.isNullOrBlank()) {
-                Text(resultPreview(hunt.result))
-            }
-            if (hunt.status == "failed" && !hunt.errorMessage.isNullOrBlank()) {
-                Text("Error: ${hunt.errorMessage}")
-            }
+            AppTab.Resources -> ResourcesScreen(
+                uiState = resourcesUiState,
+                modifier = Modifier.padding(innerPadding),
+            )
+            AppTab.Profile -> ProfileScreen(
+                uiState = profileUiState,
+                onSignIn = { profileViewModel.signInWithGoogle() },
+                onSignOut = { profileViewModel.signOut() },
+                modifier = Modifier.padding(innerPadding),
+            )
         }
     }
 }
 
-private fun resultPreview(rawResult: String): String {
-    val compact = rawResult.replace("\n", " ").trim()
-    return if (compact.length > 120) {
-        "Result: ${compact.take(120)}..."
-    } else {
-        "Result: $compact"
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun MainScreenPreview() {
-    AndroidTheme {
-        MainScreen()
-    }
-}

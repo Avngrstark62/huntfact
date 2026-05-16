@@ -1,5 +1,6 @@
 package com.example.android.network
 
+import android.content.Context
 import com.example.android.BuildConfig
 import com.example.android.utils.AuthSessionManager
 import okhttp3.OkHttpClient
@@ -8,12 +9,19 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitClient {
     private var apiService: ApiService? = null
+    private var appContext: Context? = null
 
-    fun getApiService(baseUrl: String = BuildConfig.BACKEND_BASE_URL): ApiService {
+    fun getApiService(
+        baseUrl: String = BuildConfig.BACKEND_BASE_URL,
+        context: Context? = null,
+    ): ApiService {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
         if (apiService == null) {
             val okHttpClient = OkHttpClient.Builder()
                 .addInterceptor { chain ->
-                    val token = AuthSessionManager.getAccessToken()
+                    val token = AuthSessionManager.getAccessToken(appContext)
                     val requestBuilder = chain.request().newBuilder()
                     if (!token.isNullOrBlank()) {
                         requestBuilder.addHeader("Authorization", "Bearer $token")

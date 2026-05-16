@@ -36,7 +36,7 @@ class FactCheckMessagingService : FirebaseMessagingService() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val hunt = RetrofitClient.getApiService().getHunt(huntId).toHuntItem()
+                val hunt = RetrofitClient.getApiService(context = applicationContext).getHunt(huntId).toHuntItem()
                 HuntRepository(applicationContext).upsertLocal(hunt)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to prefetch hunt result: ${e.message}", e)
