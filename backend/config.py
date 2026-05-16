@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     claim_extraction_model_name: str = "gpt-4o-mini"
 
     # Model settings
-    reasoning_model: str = "gpt-4o-mini"
+    # reasoning_model: str = "gpt-4o-mini"
+    reasoning_model: str = "gpt-4.1"
     cheap_model: str = "gpt-4.1-nano"
     # cheap_model: str = "gpt-4o-mini"
     llm_debug: bool = False

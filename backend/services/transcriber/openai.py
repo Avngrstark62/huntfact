@@ -28,7 +28,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
 
     Raises:
         ValueError: if audio_bytes is empty or invalid
-: if OpenAI API call fails
+        OpenAIError: if OpenAI API call fails
     """
     if not audio_bytes:
         error_msg = "audio_bytes cannot be empty"

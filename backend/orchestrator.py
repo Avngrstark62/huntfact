@@ -22,6 +22,7 @@ from rmq.constants import (
 from db.database import db
 
 logger = get_logger("workflow_orchestrator")
+TRANSCRIPTION_CORRECT = "TRANSCRIPTION_CORRECT"
 
 
 async def _run_cluster_verification_loop(cluster: list) -> dict:
@@ -29,7 +30,7 @@ async def _run_cluster_verification_loop(cluster: list) -> dict:
     url_fetcher_response = await publish_task_rpc(
         TaskMessage(
             step=URL_FETCHER,
-            priority=5,
+            priority=6,
             payload={"claims": cluster},
         )
     )
@@ -40,7 +41,7 @@ async def _run_cluster_verification_loop(cluster: list) -> dict:
     web_scraper_response = await publish_task_rpc(
         TaskMessage(
             step=WEB_SCRAPER,
-            priority=6,
+            priority=7,
             payload={
                 "claims": cluster,
                 "url_fetcher_results": url_fetcher_result,
@@ -54,7 +55,7 @@ async def _run_cluster_verification_loop(cluster: list) -> dict:
     claim_verifier_response = await publish_task_rpc(
         TaskMessage(
             step=CLAIM_VERIFIER,
-            priority=7,
+            priority=8,
             payload={
                 "claims": cluster,
                 "context": web_scraper_result.get("context"),
@@ -108,28 +109,71 @@ async def handle_workflow_message(msg: dict) -> None:
 
         logger.info("EXTRACT_AUDIO completed")
 
-        transcribe_response = await publish_task_rpc(
+        openai_transcribe_task = publish_task_rpc(
             TaskMessage(
                 step=TRANSCRIBE,
                 priority=2,
                 payload={
                     "audio_bytes_b64": extract_result.get("audio_bytes_b64"),
                     "audio_format": extract_result.get("audio_format"),
+                    "transcriber_service": "openai",
                 },
             )
         )
-        if transcribe_response.get("status") != "success":
-            raise RuntimeError(f"TRANSCRIBE failed: {transcribe_response}")
-        transcribe_result = transcribe_response.get("result") or {}
+        assemblyai_transcribe_task = publish_task_rpc(
+            TaskMessage(
+                step=TRANSCRIBE,
+                priority=2,
+                payload={
+                    "audio_bytes_b64": extract_result.get("audio_bytes_b64"),
+                    "audio_format": extract_result.get("audio_format"),
+                    "transcriber_service": "assemblyai",
+                },
+            )
+        )
+        openai_transcribe_response, assemblyai_transcribe_response = await asyncio.gather(
+            openai_transcribe_task,
+            assemblyai_transcribe_task,
+        )
+        if openai_transcribe_response.get("status") != "success":
+            raise RuntimeError(f"OpenAI TRANSCRIBE failed: {openai_transcribe_response}")
+        if assemblyai_transcribe_response.get("status") != "success":
+            raise RuntimeError(f"AssemblyAI TRANSCRIBE failed: {assemblyai_transcribe_response}")
 
-        logger.info(f"TRANSCRIBE completed: {transcribe_result}")
+        openai_transcribe_result = openai_transcribe_response.get("result") or {}
+        assemblyai_transcribe_result = assemblyai_transcribe_response.get("result") or {}
+        logger.info(
+            "Parallel TRANSCRIBE completed: openai_chars=%s assemblyai_chars=%s",
+            len(openai_transcribe_result.get("transcript_text") or ""),
+            len(assemblyai_transcribe_result.get("transcript_text") or ""),
+        )
+
+        correction_response = await publish_task_rpc(
+            TaskMessage(
+                step=TRANSCRIPTION_CORRECT,
+                priority=3,
+                payload={
+                    "transcripts": [
+                        openai_transcribe_result.get("transcript_text"),
+                        assemblyai_transcribe_result.get("transcript_text"),
+                    ],
+                },
+            )
+        )
+        if correction_response.get("status") != "success":
+            raise RuntimeError(f"TRANSCRIPTION_CORRECT failed: {correction_response}")
+        correction_result = correction_response.get("result") or {}
+        logger.info(
+            "TRANSCRIPTION_CORRECT completed: corrected_chars=%s",
+            len(correction_result.get("corrected_transcript") or ""),
+        )
 
         translate_response = await publish_task_rpc(
             TaskMessage(
                 step=TRANSLATE,
-                priority=3,
+                priority=4,
                 payload={
-                    "transcript_text": transcribe_result.get("transcript_text"),
+                    "transcript_text": correction_result.get("corrected_transcript"),
                 },
             )
         )
@@ -141,7 +185,7 @@ async def handle_workflow_message(msg: dict) -> None:
         claim_extract_response = await publish_task_rpc(
             TaskMessage(
                 step=EXTRACT_CLAIM_CLUSTERS,
-                priority=4,
+                priority=5,
                 payload={
                     "content": translate_result.get("translated_text"),
                 },
@@ -180,7 +224,7 @@ async def handle_workflow_message(msg: dict) -> None:
         save_result_response = await publish_task_rpc(
             TaskMessage(
                 step=SAVE_RESULT_TO_DB,
-                priority=8,
+                priority=9,
                 payload={
                     "hunt_id": hunt_id,
                     "table": merged_table,
@@ -193,7 +237,7 @@ async def handle_workflow_message(msg: dict) -> None:
         notify_response = await publish_task_rpc(
             TaskMessage(
                 step=NOTIFY,
-                priority=9,
+                priority=10,
                 payload={
                     "hunt_id": hunt_id,
                     "fcm_token": payload.get("fcm_token"),
@@ -206,7 +250,7 @@ async def handle_workflow_message(msg: dict) -> None:
         logger.info(
             "Workflow RPC chain completed: workflow_id=%s transcript_chars=%s translated_chars=%s clusters=%s merged_rows=%s",
             workflow_id,
-            len(transcribe_result.get("transcript_text") or ""),
+            len(correction_result.get("corrected_transcript") or ""),
             len(translate_result.get("translated_text") or ""),
             len(claim_extract_result.get("clusters") or []),
             len(merged_table.get("rows") or []),

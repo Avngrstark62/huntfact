@@ -28,8 +28,10 @@ from services.web_scraper.handler import handle_web_scraper
 from services.claim_verifier.handler import handle_claim_verifier
 from services.save_result_to_db.handler import handle_save_result_to_db
 from services.notification_sender.handler import handle_notify
+from services.transcription_corrector.handler import handle_correct_transcription
 
 logger = get_logger("rmq.worker")
+TRANSCRIPTION_CORRECT = "TRANSCRIPTION_CORRECT"
 
 
 def _decode_reply_to(raw_message: aio_pika.IncomingMessage) -> str | None:
@@ -100,6 +102,21 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
             result = await handle_transcribe(payload)
             if result is None:
                 raise RuntimeError("Transcription handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == TRANSCRIPTION_CORRECT:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_correct_transcription(payload)
+            if result is None:
+                raise RuntimeError("transcription_corrector handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
             if reply_to:

@@ -84,7 +84,7 @@ async def start_hunt(
 
             task = TaskMessage(
                 step=NOTIFY,
-                priority=9,
+                priority=10,
                 payload={
                     "fcm_token": request.fcm_token,
                     "hunt_id": existing_hunt.id,

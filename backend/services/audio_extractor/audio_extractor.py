@@ -20,33 +20,33 @@ def _validate_url(url: str) -> bool:
 
 async def extract_audio(
     url: str,
-    timeout: int = 30,
+    timeout: int = 60,
     bitrate: str = "128k"
 ) -> Dict[str, Optional[bytes | str]]:
     """
     Extract audio from URL and convert to MP3.
-    
-    Tries fast path (copy AAC) → converts to MP3 in-memory.
+
+    Tries fast path (copy AAC) -> converts to MP3 in-memory.
     Falls back to direct MP3 encode if needed.
-    
+
     Args:
         url: URL to extract audio from
         timeout: Timeout in seconds for each ffmpeg process
         bitrate: MP3 bitrate (default: 128k)
-    
+
     Returns:
         Dictionary with keys:
         - audio: bytes of MP3 audio (None if failed)
         - format: "mp3"
         - error: error message if failed (None if successful)
     """
-    
+
     # Validate URL
     if not _validate_url(url):
         error_msg = f"Invalid URL format: {url}"
         logger.error(error_msg)
         return {"audio": None, "format": "mp3", "error": error_msg}
-    
+
     # ---------- FAST PATH (copy AAC) ----------
     try:
         process = await asyncio.create_subprocess_exec(
@@ -60,7 +60,7 @@ async def extract_audio(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        
+
         try:
             aac_audio, err = await asyncio.wait_for(
                 process.communicate(),
@@ -69,11 +69,12 @@ async def extract_audio(
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
+            logger.debug("Fast path timeout: timeout=%ss url=%s", timeout, url)
             logger.warning(f"Fast path ffmpeg timeout, falling back")
             aac_audio = None
-        
+
         if aac_audio:
-            # Convert AAC → MP3 in-memory
+            # Convert AAC -> MP3 in-memory
             try:
                 convert = await asyncio.create_subprocess_exec(
                     "ffmpeg",
@@ -87,7 +88,7 @@ async def extract_audio(
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                
+
                 try:
                     mp3_audio, err = await asyncio.wait_for(
                         convert.communicate(input=aac_audio),
@@ -96,24 +97,27 @@ async def extract_audio(
                 except asyncio.TimeoutError:
                     convert.kill()
                     await convert.wait()
+                    logger.debug("AAC->MP3 timeout: timeout=%ss url=%s", timeout, url)
                     logger.warning(f"AAC→MP3 conversion timeout, falling back")
                     mp3_audio = None
-                
+
                 if mp3_audio:
                     logger.info(f"Successfully extracted audio via fast path: {url}")
                     return {"audio": mp3_audio, "format": "mp3", "error": None}
             except Exception as e:
+                logger.debug("AAC->MP3 conversion failed: url=%s error=%s", url, str(e))
                 logger.warning(f"AAC→MP3 conversion failed, falling back: {e}")
-    
+
     except FileNotFoundError as e:
         error_msg = f"FFmpeg not found: {e}"
         logger.error(error_msg)
         return {"audio": None, "format": "mp3", "error": error_msg}
     except Exception as e:
+        logger.debug("Fast path failed: url=%s error=%s", url, str(e))
         logger.warning(f"Fast path failed, falling back: {e}")
-    
+
     logger.info("Fast path failed, falling back to direct MP3 encode...")
-    
+
     # ---------- FALLBACK (direct MP3 encode) ----------
     try:
         process = await asyncio.create_subprocess_exec(
@@ -127,7 +131,7 @@ async def extract_audio(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        
+
         try:
             mp3_audio, err = await asyncio.wait_for(
                 process.communicate(),
@@ -136,28 +140,38 @@ async def extract_audio(
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
+            logger.debug("Fallback timeout: timeout=%ss url=%s", timeout, url)
             error_msg = f"Audio extraction timeout after {timeout}s"
             logger.error(error_msg)
             return {"audio": None, "format": "mp3", "error": error_msg}
-        
+
         if process.returncode != 0:
-            error_msg = f"FFmpeg failed: {err.decode('utf-8', errors='ignore')}"
+            stderr_text = err.decode("utf-8", errors="ignore")
+            logger.debug(
+                "Fallback ffmpeg non-zero exit: returncode=%s url=%s stderr=%s",
+                process.returncode,
+                url,
+                stderr_text,
+            )
+            error_msg = f"FFmpeg failed: {stderr_text}"
             logger.error(error_msg)
             return {"audio": None, "format": "mp3", "error": error_msg}
-        
+
         if not mp3_audio:
+            logger.debug("Fallback produced empty output: url=%s returncode=%s", url, process.returncode)
             error_msg = "FFmpeg produced no output"
             logger.error(error_msg)
             return {"audio": None, "format": "mp3", "error": error_msg}
-        
+
         logger.info(f"Successfully extracted audio via fallback: {url}")
         return {"audio": mp3_audio, "format": "mp3", "error": None}
-    
+
     except FileNotFoundError as e:
         error_msg = f"FFmpeg not found: {e}"
         logger.error(error_msg)
         return {"audio": None, "format": "mp3", "error": error_msg}
     except Exception as e:
+        logger.debug("Fallback unexpected error: url=%s error=%s", url, str(e))
         error_msg = f"Unexpected error during audio extraction: {e}"
         logger.error(error_msg, exc_info=True)
         return {"audio": None, "format": "mp3", "error": error_msg}
