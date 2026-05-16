@@ -52,8 +52,8 @@ async def extract_audio(
         process = await asyncio.create_subprocess_exec(
             "ffmpeg",
             "-loglevel", "error",
-            "-i", url,
             "-ipv4",
+            "-i", url,
             "-vn",
             "-acodec", "copy",
             "-f", "adts",
