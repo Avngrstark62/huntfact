@@ -2,13 +2,18 @@ from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel
 
+from chroma_client import chroma_client
 from config import settings
 from llm import llm
 from logging_config import get_logger
+from services.save_data_to_rag.save_data_to_rag import _get_embeddings
 
 logger = get_logger("services.claim_verifier.claim_verifier")
 
 ALLOWED_VERDICTS = {"true", "false", "partially true", "no verdict"}
+MAX_QUERIES = 6
+MAX_CHUNKS_PER_QUERY = 5
+MAX_DISTANCE = 0.35
 
 
 class ClaimVerificationRow(BaseModel):
@@ -22,6 +27,10 @@ class ClaimVerificationResponse(BaseModel):
     rows: List[ClaimVerificationRow]
 
 
+class RetrievalQueriesResponse(BaseModel):
+    queries: List[str]
+
+
 def _normalize_claims(claims: List[str]) -> List[str]:
     cleaned_claims: List[str] = []
     for claim in claims:
@@ -33,34 +42,24 @@ def _normalize_claims(claims: List[str]) -> List[str]:
     return cleaned_claims
 
 
-def _extract_context_sources(context: Dict[str, Any]) -> List[Dict[str, str]]:
-    raw_sources = context.get("sources", [])
-    if not isinstance(raw_sources, list):
-        return []
-
-    sources: List[Dict[str, str]] = []
-    for source in raw_sources:
-        if not isinstance(source, dict):
+def _normalize_queries(queries: List[str]) -> List[str]:
+    normalized: List[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        if not isinstance(query, str):
             continue
-
-        url = str(source.get("url", "")).strip()
-        content = str(source.get("content", "")).strip()
-        if not url or not content:
+        value = query.strip()
+        key = value.lower()
+        if not value or key in seen:
             continue
-
-        sources.append(
-            {
-                "url": url,
-                "title": str(source.get("title", "")).strip(),
-                "query": str(source.get("query", "")).strip(),
-                "content": content,
-            }
-        )
-
-    return sources
+        seen.add(key)
+        normalized.append(value)
+        if len(normalized) >= MAX_QUERIES:
+            break
+    return normalized
 
 
-def _format_context_for_llm(sources: List[Dict[str, str]]) -> str:
+def _format_context_for_llm(sources: List[Dict[str, Any]]) -> str:
     chunks: List[str] = []
     for index, source in enumerate(sources, 1):
         chunks.append(
@@ -68,14 +67,100 @@ def _format_context_for_llm(sources: List[Dict[str, str]]) -> str:
                 [
                     f"Source {index}",
                     f"URL: {source['url']}",
-                    f"Title: {source['title']}",
-                    f"Query: {source['query']}",
+                    f"Title: {source.get('title', '')}",
+                    f"Retrieval query: {source.get('retrieval_query', '')}",
+                    f"Distance: {source.get('distance')}",
                     "Content:",
                     source["content"],
                 ]
             )
         )
     return "\n\n---\n\n".join(chunks)
+
+
+async def _generate_retrieval_queries(claims: List[str]) -> List[str]:
+    claims_text = "\n".join([f"- {claim}" for claim in claims])
+    prompt = f"""You are preparing retrieval queries for claim verification.
+
+Claims:
+{claims_text}
+
+Task:
+- Return a minimal set of web-search-style queries that can verify all claims.
+- Keep queries specific and evidence-focused.
+- Avoid redundant or overlapping queries.
+- Return between 1 and {MAX_QUERIES} queries.
+"""
+    messages = [
+        {
+            "role": "system",
+            "content": "Generate concise retrieval queries to verify factual claims.",
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+    result = await llm.call_with_schema(
+        model=settings.reasoning_model,
+        messages=messages,
+        schema_model=RetrievalQueriesResponse,
+    )
+    queries = _normalize_queries(result.queries)
+    if queries:
+        return queries
+    return claims
+
+
+def _extract_chunks_for_query(
+    collection: Any,
+    query: str,
+    query_embedding: List[float],
+) -> List[Dict[str, Any]]:
+    query_result = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=MAX_CHUNKS_PER_QUERY,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = (query_result.get("documents") or [[]])[0]
+    metadatas = (query_result.get("metadatas") or [[]])[0]
+    distances = (query_result.get("distances") or [[]])[0]
+    matched_chunks: List[Dict[str, Any]] = []
+
+    for idx, document in enumerate(documents):
+        metadata = metadatas[idx] if idx < len(metadatas) else {}
+        distance = distances[idx] if idx < len(distances) else None
+        if distance is None or float(distance) > MAX_DISTANCE:
+            continue
+
+        url = str((metadata or {}).get("source_url") or (metadata or {}).get("url") or "").strip()
+        content = str(document or "").strip()
+        if not url or not content:
+            continue
+
+        matched_chunks.append(
+            {
+                "url": url,
+                "title": str((metadata or {}).get("source_title") or (metadata or {}).get("title") or "").strip(),
+                "query": str((metadata or {}).get("source_query") or (metadata or {}).get("query") or "").strip(),
+                "retrieval_query": query,
+                "distance": float(distance),
+                "content": content,
+            }
+        )
+
+    return matched_chunks
+
+
+def _dedupe_chunks(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        key = (chunk["url"], chunk["content"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(chunk)
+    return deduped
 
 
 def _claim_key(claim: str) -> str:
@@ -123,22 +208,51 @@ def _normalize_rows(
     return normalized_rows
 
 
-async def verify_claims_with_context(claims: List[str], context: Dict[str, Any]) -> Dict[str, Any]:
+async def verify_claims_with_context(claims: List[str], rag_collection_name: str) -> Dict[str, Any]:
     normalized_claims = _normalize_claims(claims)
     if not normalized_claims:
         logger.warning("No valid claims provided to claim verifier")
         return {"rows": []}
 
-    context_sources = _extract_context_sources(context)
-    if not context_sources:
-        logger.warning("No valid context sources provided to claim verifier")
+    if not isinstance(rag_collection_name, str) or not rag_collection_name.strip():
+        logger.warning("No valid rag collection name provided to claim verifier")
         return {
             "rows": [
                 {
                     "claim": claim,
                     "verdict": "no verdict",
                     "sources": [],
-                    "explanation": "No usable context sources were provided for verification.",
+                    "explanation": "No valid RAG collection was provided for verification.",
+                }
+                for claim in normalized_claims
+            ]
+        }
+
+    retrieval_queries = await _generate_retrieval_queries(normalized_claims)
+    logger.info(
+        "Generated %s retrieval queries for %s claims",
+        len(retrieval_queries),
+        len(normalized_claims),
+    )
+
+    chroma = chroma_client.connect()
+    collection = chroma.get_collection(name=rag_collection_name.strip())
+
+    all_chunks: List[Dict[str, Any]] = []
+    for retrieval_query in retrieval_queries:
+        query_embedding = _get_embeddings([retrieval_query])[0]
+        all_chunks.extend(_extract_chunks_for_query(collection, retrieval_query, query_embedding))
+
+    context_sources = _dedupe_chunks(all_chunks)
+    if not context_sources:
+        logger.warning("No RAG chunks matched distance threshold for claim verifier")
+        return {
+            "rows": [
+                {
+                    "claim": claim,
+                    "verdict": "no verdict",
+                    "sources": [],
+                    "explanation": "No relevant retrieved evidence was found for this claim cluster.",
                 }
                 for claim in normalized_claims
             ]
@@ -180,7 +294,10 @@ Rules:
     ]
 
     logger.info(
-        f"Generating claim verification for {len(normalized_claims)} claims using {len(context_sources)} context sources"
+        "Generating claim verification for %s claims using %s retrieved chunks from collection %s",
+        len(normalized_claims),
+        len(context_sources),
+        rag_collection_name.strip(),
     )
     result = await llm.call_with_schema(
         model=settings.reasoning_model,

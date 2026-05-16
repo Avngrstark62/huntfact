@@ -15,6 +15,7 @@ from rmq.constants import (
     EXTRACT_CLAIM_CLUSTERS,
     URL_FETCHER,
     WEB_SCRAPER,
+    RAG_STORAGE,
     CLAIM_VERIFIER,
     SAVE_RESULT_TO_DB,
     NOTIFY,
@@ -25,8 +26,27 @@ logger = get_logger("workflow_orchestrator")
 TRANSCRIPTION_CORRECT = "TRANSCRIPTION_CORRECT"
 
 
+def _build_no_verdict_table_for_cluster(cluster: list, explanation: str) -> dict:
+    rows = []
+    for claim in cluster:
+        if not isinstance(claim, str):
+            continue
+        value = claim.strip()
+        if not value:
+            continue
+        rows.append(
+            {
+                "claim": value,
+                "verdict": "no verdict",
+                "sources": [],
+                "explanation": explanation,
+            }
+        )
+    return {"rows": rows}
+
+
 async def _run_cluster_verification_loop(cluster: list) -> dict:
-    """Run URL fetcher -> web scraper -> claim verifier for one cluster."""
+    """Run URL fetcher -> web scraper -> rag storage -> claim verifier for one cluster."""
     url_fetcher_response = await publish_task_rpc(
         TaskMessage(
             step=URL_FETCHER,
@@ -51,14 +71,38 @@ async def _run_cluster_verification_loop(cluster: list) -> dict:
     if web_scraper_response.get("status") != "success":
         raise RuntimeError(f"WEB_SCRAPER failed: {web_scraper_response}")
     web_scraper_result = web_scraper_response.get("result") or {}
+    context = web_scraper_result.get("context") or {}
+    context_sources = context.get("sources") if isinstance(context, dict) else None
+    if not isinstance(context_sources, list) or not context_sources:
+        logger.warning(
+            "No context sources for cluster, returning fallback no-verdict rows: claims=%s",
+            len(cluster),
+        )
+        return _build_no_verdict_table_for_cluster(
+            cluster,
+            "No sufficient web sources were found to verify this claim cluster.",
+        )
+
+    rag_storage_response = await publish_task_rpc(
+        TaskMessage(
+            step=RAG_STORAGE,
+            priority=8,
+            payload={
+                "context": context,
+            },
+        )
+    )
+    if rag_storage_response.get("status") != "success":
+        raise RuntimeError(f"RAG_STORAGE failed: {rag_storage_response}")
+    rag_storage_result = rag_storage_response.get("result") or {}
 
     claim_verifier_response = await publish_task_rpc(
         TaskMessage(
             step=CLAIM_VERIFIER,
-            priority=8,
+            priority=9,
             payload={
                 "claims": cluster,
-                "context": web_scraper_result.get("context"),
+                "rag_reference": rag_storage_result.get("rag_reference"),
             },
         )
     )
@@ -208,7 +252,26 @@ async def handle_workflow_message(msg: dict) -> None:
         )
 
         loop_tasks = [_run_cluster_verification_loop(cluster) for cluster in valid_clusters]
-        cluster_tables = await asyncio.gather(*loop_tasks)
+        cluster_results = await asyncio.gather(*loop_tasks, return_exceptions=True)
+        cluster_tables = []
+        for idx, result in enumerate(cluster_results):
+            if isinstance(result, Exception):
+                logger.error(
+                    "Cluster verification failed, using fallback table: workflow_id=%s cluster_index=%s error=%s",
+                    workflow_id,
+                    idx,
+                    str(result),
+                    exc_info=True,
+                )
+                cluster = valid_clusters[idx] if idx < len(valid_clusters) else []
+                cluster_tables.append(
+                    _build_no_verdict_table_for_cluster(
+                        cluster,
+                        "Verification could not be completed for this claim cluster due to a processing error.",
+                    )
+                )
+                continue
+            cluster_tables.append(result)
         logger.info(
             "Cluster fanout completed: workflow_id=%s clusters=%s",
             workflow_id,
@@ -224,7 +287,7 @@ async def handle_workflow_message(msg: dict) -> None:
         save_result_response = await publish_task_rpc(
             TaskMessage(
                 step=SAVE_RESULT_TO_DB,
-                priority=9,
+                priority=10,
                 payload={
                     "hunt_id": hunt_id,
                     "table": merged_table,
@@ -237,7 +300,7 @@ async def handle_workflow_message(msg: dict) -> None:
         notify_response = await publish_task_rpc(
             TaskMessage(
                 step=NOTIFY,
-                priority=10,
+                priority=11,
                 payload={
                     "hunt_id": hunt_id,
                     "fcm_token": payload.get("fcm_token"),

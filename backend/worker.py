@@ -13,6 +13,7 @@ from rmq.constants import (
     EXTRACT_CLAIM_CLUSTERS,
     URL_FETCHER,
     WEB_SCRAPER,
+    RAG_STORAGE,
     CLAIM_VERIFIER,
     SAVE_RESULT_TO_DB,
     NOTIFY,
@@ -25,6 +26,7 @@ from services.translator.handler import handle_translate
 from services.claim_extractor.handler import handle_extract_claim_clusters
 from services.url_fetcher.handler import handle_url_fetcher
 from services.web_scraper.handler import handle_web_scraper
+from services.rag_storage.handler import handle_rag_storage
 from services.claim_verifier.handler import handle_claim_verifier
 from services.save_result_to_db.handler import handle_save_result_to_db
 from services.notification_sender.handler import handle_notify
@@ -177,6 +179,21 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
             result = await handle_web_scraper(payload)
             if result is None:
                 raise RuntimeError("Web scraper handler returned no result")
+            if result.get("error"):
+                raise RuntimeError(result["error"])
+            if reply_to:
+                await _publish_task_reply(
+                    raw_message,
+                    reply_to,
+                    {"status": "success", "step": step, "result": result},
+                )
+            return
+
+        if step == RAG_STORAGE:
+            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
+            result = await handle_rag_storage(payload)
+            if result is None:
+                raise RuntimeError("RAG storage handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
             if reply_to:
