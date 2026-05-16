@@ -53,6 +53,7 @@ async def extract_audio(
             "ffmpeg",
             "-loglevel", "error",
             "-i", url,
+            "-ipv4",
             "-vn",
             "-acodec", "copy",
             "-f", "adts",
