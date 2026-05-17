@@ -6,6 +6,7 @@ from config import settings
 from typing import Generator
 
 Base = declarative_base()
+DEFAULT_USER_HUNTS_LIMIT = 30
 
 
 class Database:
@@ -129,6 +130,39 @@ class Database:
         session.refresh(hunt)
         return hunt
 
+    def transition_hunt_to_processing(
+        self,
+        session: Session,
+        hunt_id: int,
+        clear_result: bool = False,
+    ):
+        from db.models.hunt import Hunt
+
+        update_data = {
+            Hunt.status: "processing",
+            Hunt.error_message: None,
+            Hunt.completed_at: None,
+        }
+        if clear_result:
+            update_data[Hunt.result] = None
+
+        updated_rows = (
+            session.query(Hunt)
+            .filter(Hunt.id == hunt_id, Hunt.status != "processing")
+            .update(update_data, synchronize_session=False)
+        )
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            raise
+
+        hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
+        if hunt is None:
+            return None, False
+
+        return hunt, updated_rows > 0
+
     def update_hunt_metadata(
         self,
         session: Session,
@@ -198,6 +232,47 @@ class Database:
             .filter(HuntUser.user_id == user_id)
             .order_by(Hunt.updated_at.desc())
             .all()
+        )
+
+    def get_or_create_user_hunts_limit(
+        self,
+        session: Session,
+        user_id: str,
+    ) -> int:
+        from db.models.user_hunt_limit import UserHuntLimit
+
+        row = session.query(UserHuntLimit).filter(UserHuntLimit.user_id == user_id).first()
+        if row:
+            return row.hunts_limit
+
+        row = UserHuntLimit(
+            user_id=user_id,
+            hunts_limit=DEFAULT_USER_HUNTS_LIMIT,
+        )
+        session.add(row)
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            row = session.query(UserHuntLimit).filter(UserHuntLimit.user_id == user_id).first()
+            if row is None:
+                raise
+            return row.hunts_limit
+        session.refresh(row)
+        return row.hunts_limit
+
+    def get_active_hunts_count_by_user_id(self, session: Session, user_id: str) -> int:
+        from db.models.hunt import Hunt
+        from db.models.hunt_user import HuntUser
+
+        return (
+            session.query(Hunt.id)
+            .join(HuntUser, Hunt.id == HuntUser.hunt_id)
+            .filter(
+                HuntUser.user_id == user_id,
+                Hunt.status.in_(["queued", "processing", "completed"]),
+            )
+            .count()
         )
 
 

@@ -6,7 +6,7 @@ class Hunt(Base):
     __tablename__ = "hunts"
 
     id = Column(Integer, primary_key=True, index=True)
-    video_link = Column(String, nullable=False)
+    video_link = Column(String, nullable=False, unique=True)
     status = Column(String, nullable=False, default="queued")
     result = Column(String, nullable=True)
     thumbnail_url = Column(String, nullable=True)

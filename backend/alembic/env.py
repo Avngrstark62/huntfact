@@ -8,6 +8,7 @@ from db.database import Base
 
 # 👇 import models so Alembic sees them
 from db.models import hunt
+from db.models import user_hunt_limit
 
 
 config = context.config
