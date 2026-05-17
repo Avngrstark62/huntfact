@@ -9,7 +9,7 @@ plugins {
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 android {
-    namespace = "com.example.android"
+    namespace = "com.abhijeet.huntfact"
     compileSdk = 36
 
     val supabaseUrl = (project.findProperty("SUPABASE_URL") as String?)
@@ -20,10 +20,10 @@ android {
         ?: ""
     val backendBaseUrl = (project.findProperty("BACKEND_BASE_URL") as String?)
         ?: System.getenv("BACKEND_BASE_URL")
-        ?: "http://10.34.64.60:8000/"
+        ?: "https://api.huntfact.com/"
 
     defaultConfig {
-        applicationId = "com.example.android"
+        applicationId = "com.abhijeet.huntfact"
         minSdk = 29
         targetSdk = 36
         versionCode = 1
