@@ -26,13 +26,13 @@ def _build_blob_url(container_sas_url: str, blob_name: str) -> str:
 
 
 def _upload_audio_blob(audio_bytes: bytes, fmt: str) -> str:
-    if not settings.azure_batch_input_container_sas_url:
+    if not settings.transcription.azure_batch_input_container_sas_url:
         error_msg = "azure_batch_input_container_sas_url is not configured"
         logger.error(error_msg)
         raise ValueError(error_msg)
 
     blob_name = f"transcription-input-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex}.{fmt}"
-    blob_url = _build_blob_url(settings.azure_batch_input_container_sas_url, blob_name)
+    blob_url = _build_blob_url(settings.transcription.azure_batch_input_container_sas_url, blob_name)
 
     content_type = "audio/mpeg" if fmt == "mp3" else "audio/aac"
     headers = {
@@ -81,12 +81,12 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    if not settings.azure_speech_key:
+    if not settings.transcription.azure_speech_key:
         error_msg = "azure_speech_key is not configured"
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    if not settings.azure_speech_region:
+    if not settings.transcription.azure_speech_region:
         error_msg = "azure_speech_region is not configured"
         logger.error(error_msg)
         raise ValueError(error_msg)
@@ -97,16 +97,16 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         blob_url = _upload_audio_blob(audio_bytes, fmt)
 
         endpoint = (
-            f"https://{settings.azure_speech_region}.api.cognitive.microsoft.com"
-            f"/speechtotext/{settings.azure_speech_batch_api_version}/transcriptions"
+            f"https://{settings.transcription.azure_speech_region}.api.cognitive.microsoft.com"
+            f"/speechtotext/{settings.transcription.azure_speech_batch_api_version}/transcriptions"
         )
         headers = {
-            "Ocp-Apim-Subscription-Key": settings.azure_speech_key,
+            "Ocp-Apim-Subscription-Key": settings.transcription.azure_speech_key,
             "Content-Type": "application/json",
         }
         payload = {
             "displayName": f"huntfact-transcription-{uuid.uuid4().hex[:8]}",
-            "locale": settings.azure_speech_language,
+            "locale": settings.transcription.azure_speech_language,
             "contentUrls": [blob_url],
             "properties": {
                 "diarizationEnabled": False,
@@ -128,8 +128,8 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         if not transcription_url:
             raise Exception("Azure batch transcription did not return a transcription URL")
 
-        timeout_seconds = settings.azure_transcription_timeout_seconds
-        poll_interval = settings.azure_batch_poll_interval_seconds
+        timeout_seconds = settings.transcription.azure_transcription_timeout_seconds
+        poll_interval = settings.transcription.azure_batch_poll_interval_seconds
         elapsed_seconds = 0
 
         while True:

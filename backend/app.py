@@ -15,8 +15,8 @@ logger = get_logger("app")
 class App:
     def __init__(self):
         self.app = FastAPI(
-            title=settings.app_name,
-            debug=settings.debug,
+            title=settings.app.app_name,
+            debug=settings.app.debug,
         )
         self._register_startup_shutdown()
         self._register_routes()
@@ -36,18 +36,18 @@ class App:
                 await rabbitmq.connect()
                 channel = await rabbitmq.get_channel()
                 await channel.declare_queue(
-                    settings.task_queue_name,
+                    settings.rmq.task_queue_name,
                     durable=True,
-                    arguments={"x-max-priority": settings.max_priority}
+                    arguments={"x-max-priority": settings.rmq.max_priority}
                 )
                 await channel.declare_queue(
-                    settings.workflow_queue_name,
+                    settings.rmq.workflow_queue_name,
                     durable=True,
                 )
                 rabbitmq.is_healthy = True
                 logger.info("RabbitMQ connection established successfully")
-                logger.info(f"Queue '{settings.task_queue_name}' declared successfully")
-                logger.info(f"Queue '{settings.workflow_queue_name}' declared successfully")
+                logger.info(f"Queue '{settings.rmq.task_queue_name}' declared successfully")
+                logger.info(f"Queue '{settings.rmq.workflow_queue_name}' declared successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize RabbitMQ: {str(e)}", exc_info=True)
                 rabbitmq.is_healthy = False

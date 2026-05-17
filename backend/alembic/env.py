@@ -14,7 +14,7 @@ from db.models import user_hunt_limit
 config = context.config
 
 # ✅ OVERRIDE DB URL HERE (THIS IS THE KEY FIX)
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.database.database_url)
 
 
 # logging

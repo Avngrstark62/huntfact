@@ -12,7 +12,7 @@ DEFAULT_USER_HUNTS_LIMIT = 30
 class Database:
     def __init__(self):
         self.engine = create_engine(
-            settings.database_url,
+            settings.database.database_url,
             pool_size=10,
             max_overflow=20,
             pool_pre_ping=True,  # important

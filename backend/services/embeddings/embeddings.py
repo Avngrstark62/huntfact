@@ -18,7 +18,7 @@ def get_embeddings(texts: List[str]) -> List[List[float]]:
     Returns:
         List of embedding vectors
     """
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(api_key=settings.external_apis.openai_api_key)
 
     response = client.embeddings.create(
         model="text-embedding-3-small",
