@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     max_priority: int = 20
     prefetch_count: int = 1
 
-    google_api_key: str
     openai_api_key: str
     firecrawl_api_url: str = "https://firecrawl.huntfact.com"
 
@@ -42,10 +41,6 @@ class Settings(BaseSettings):
     azure_speech_batch_api_version: str = "v3.2"
     azure_batch_poll_interval_seconds: int = 5
     azure_batch_input_container_sas_url: str = ""
-
-    # Claim extraction service settings
-    claim_extraction_model_provider: str = "openai"
-    claim_extraction_model_name: str = "gpt-4o-mini"
 
     # Model settings
     # reasoning_model: str = "gpt-4o-mini"
