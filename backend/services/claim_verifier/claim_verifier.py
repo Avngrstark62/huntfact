@@ -6,7 +6,7 @@ from chroma_client import chroma_client
 from config import settings
 from llm import llm
 from logging_config import get_logger
-from services.save_data_to_rag.save_data_to_rag import _get_embeddings
+from services.embeddings.embeddings import get_embeddings
 
 logger = get_logger("services.claim_verifier.claim_verifier")
 
@@ -240,7 +240,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
 
     all_chunks: List[Dict[str, Any]] = []
     for retrieval_query in retrieval_queries:
-        query_embedding = _get_embeddings([retrieval_query])[0]
+        query_embedding = get_embeddings([retrieval_query])[0]
         all_chunks.extend(_extract_chunks_for_query(collection, retrieval_query, query_embedding))
 
     context_sources = _dedupe_chunks(all_chunks)

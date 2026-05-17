@@ -1,8 +1,7 @@
 from typing import Dict, Any, List
 from logging_config import get_logger
-from config import settings
 from chroma_client import chroma_client
-from openai import OpenAI
+from services.embeddings.embeddings import get_embeddings
 
 logger = get_logger("services.save_data_to_rag.save_data_to_rag")
 
@@ -32,26 +31,8 @@ def _chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[s
 
 
 def _get_embeddings(texts: List[str]) -> List[List[float]]:
-    """
-    Get embeddings for texts using OpenAI embedding model.
-    
-    Args:
-        texts: List of texts to embed
-    
-    Returns:
-        List of embedding vectors
-    """
-    client = OpenAI(api_key=settings.openai_api_key)
-    
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=texts
-    )
-    
-    embeddings = [item.embedding for item in response.data]
-    logger.info(f"Generated embeddings for {len(embeddings)} texts")
-    
-    return embeddings
+    """Backward-compatible wrapper for the shared embeddings service."""
+    return get_embeddings(texts)
 
 
 async def save_data_to_rag(job_id: str, pages_data: List[Dict[str, Any]]) -> Dict[str, Any]:
