@@ -53,12 +53,6 @@ class Settings(BaseSettings):
     searxng_search_url: str = "http://localhost:8080/search"
     searxng_timeout_seconds: int = 10
 
-    # Redis settings
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_db: int = 0
-    redis_password: str = ""
-
     # ChromaDB settings
     chroma_host: str = "localhost"
     chroma_port: int = 9275
