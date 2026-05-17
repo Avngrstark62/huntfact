@@ -22,11 +22,13 @@ class ChromaDBClient:
         if self.client is None:
             try:
                 self.client = chromadb.HttpClient(
-                    host=settings.chroma_host,
-                    port=settings.chroma_port,
+                    host=settings.vector_store.chroma_host,
+                    port=settings.vector_store.chroma_port,
                 )
                 self.is_healthy = True
-                logger.info(f"Connected to ChromaDB at {settings.chroma_host}:{settings.chroma_port}")
+                logger.info(
+                    f"Connected to ChromaDB at {settings.vector_store.chroma_host}:{settings.vector_store.chroma_port}"
+                )
             except Exception as e:
                 self.is_healthy = False
                 logger.error(f"Failed to connect to ChromaDB: {str(e)}", exc_info=True)

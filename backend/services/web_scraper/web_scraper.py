@@ -122,7 +122,7 @@ Task:
     ]
 
     result = await llm.call_with_schema(
-        model=settings.reasoning_model,
+        model=settings.models.reasoning_model,
         messages=messages,
         schema_model=SelectedUrlsResponse,
     )

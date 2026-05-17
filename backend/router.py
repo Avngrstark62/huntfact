@@ -228,7 +228,7 @@ async def start_hunt(
         )
              
     except Exception as e:
-        logger.error(f"Unexpected error in start_hunt: {str(e)}", exc_info=settings.debug)
+        logger.error(f"Unexpected error in start_hunt: {str(e)}", exc_info=settings.app.debug)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal Server Error"}
@@ -269,7 +269,7 @@ async def get_hunt(
             completed_at=hunt.completed_at,
         )
     except Exception as e:
-        logger.error(f"Unexpected error in get_hunt: {str(e)}", exc_info=settings.debug)
+        logger.error(f"Unexpected error in get_hunt: {str(e)}", exc_info=settings.app.debug)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal Server Error"},
@@ -306,7 +306,7 @@ async def get_user_hunts(
             for hunt in hunts
         ]
     except Exception as e:
-        logger.error(f"Unexpected error in get_user_hunts: {str(e)}", exc_info=settings.debug)
+        logger.error(f"Unexpected error in get_user_hunts: {str(e)}", exc_info=settings.app.debug)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": "Internal Server Error"},

@@ -225,7 +225,7 @@ def _normalize_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _get_embeddings(texts: list[str]) -> list[list[float]]:
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(api_key=settings.external_apis.openai_api_key)
     embeddings: list[list[float]] = []
 
     for batch_start in range(0, len(texts), EMBEDDING_BATCH_SIZE):

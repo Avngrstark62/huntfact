@@ -67,7 +67,7 @@ Claims:
     ]
 
     result = await llm.call_with_schema(
-        model=settings.reasoning_model,
+        model=settings.models.reasoning_model,
         messages=messages,
         schema_model=QueryListResponse,
     )
@@ -105,9 +105,9 @@ def _extract_search_results(search_results: List[Dict[str, Any]]) -> List[Dict[s
 def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     try:
         response = requests.get(
-            settings.searxng_search_url,
+            settings.search.searxng_search_url,
             params={"q": query, "format": "json"},
-            timeout=settings.searxng_timeout_seconds,
+            timeout=settings.search.searxng_timeout_seconds,
         )
     except requests.RequestException as e:
         logger.error(f"SearxNG request failed for query '{query}': {str(e)}", exc_info=True)

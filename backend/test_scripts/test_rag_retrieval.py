@@ -13,7 +13,7 @@ DEFAULT_MAX_DISTANCE = 0.3
 
 
 def _get_query_embedding(query: str) -> list[float]:
-    client = OpenAI(api_key=settings.openai_api_key)
+    client = OpenAI(api_key=settings.external_apis.openai_api_key)
     response = client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=[query],

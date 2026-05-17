@@ -24,12 +24,12 @@ class RabbitMQClient:
             if self.connection and not self.connection.is_closed:
                 return self.connection
 
-            self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+            self.connection = await aio_pika.connect_robust(settings.rmq.rabbitmq_url)
             return self.connection
 
     async def get_channel(self, prefetch_count: int = None):
         if prefetch_count is None:
-            prefetch_count = settings.prefetch_count
+            prefetch_count = settings.rmq.prefetch_count
         
         connection = await self.connect()
         channel = await connection.channel()

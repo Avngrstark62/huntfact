@@ -38,14 +38,14 @@ class JwksCache:
             if self._jwks and now < self._expires_at:
                 return self._jwks
 
-            if not settings.supabase_jwks_url:
+            if not settings.auth.supabase_jwks_url:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Authentication is not configured",
                 )
 
             try:
-                response = requests.get(settings.supabase_jwks_url, timeout=5)
+                response = requests.get(settings.auth.supabase_jwks_url, timeout=5)
                 response.raise_for_status()
                 payload = response.json()
             except Exception:
@@ -107,14 +107,14 @@ def _get_signing_key(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
 
 
 def _decode_claims(token: str, signing_key: dict[str, Any]) -> dict[str, Any]:
-    options = {"verify_aud": bool(settings.supabase_audience)}
+    options = {"verify_aud": bool(settings.auth.supabase_audience)}
     kwargs: dict[str, Any] = {
         "algorithms": ["ES256"],
-        "issuer": settings.supabase_issuer,
+        "issuer": settings.auth.supabase_issuer,
         "options": options,
     }
-    if settings.supabase_audience:
-        kwargs["audience"] = settings.supabase_audience
+    if settings.auth.supabase_audience:
+        kwargs["audience"] = settings.auth.supabase_audience
 
     try:
         return jwt.decode(token, signing_key, **kwargs)
@@ -130,7 +130,7 @@ def get_authenticated_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> AuthenticatedUser:
-    if settings.disable_auth:
+    if settings.auth.disable_auth:
         user = AuthenticatedUser(sub="disabled-auth-user")
         request.state.authenticated_user = user
         return user

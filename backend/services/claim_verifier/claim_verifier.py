@@ -100,7 +100,7 @@ Task:
     ]
 
     result = await llm.call_with_schema(
-        model=settings.reasoning_model,
+        model=settings.models.reasoning_model,
         messages=messages,
         schema_model=RetrievalQueriesResponse,
     )
@@ -300,7 +300,7 @@ Rules:
         rag_collection_name.strip(),
     )
     result = await llm.call_with_schema(
-        model=settings.reasoning_model,
+        model=settings.models.reasoning_model,
         messages=messages,
         schema_model=ClaimVerificationResponse,
     )

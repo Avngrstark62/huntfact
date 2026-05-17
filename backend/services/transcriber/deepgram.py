@@ -43,7 +43,7 @@ def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[Dict[str, Any]]:
         logger.info(f"Starting transcription for {fmt} audio ({len(audio_bytes)} bytes)")
         
         # Initialize Deepgram client
-        client = DeepgramClient(settings.deepgram_api_key)
+        client = DeepgramClient(settings.transcription.deepgram_api_key)
 
         options = {
                 "model": "nova-2",

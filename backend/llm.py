@@ -14,13 +14,13 @@ class LLM:
     """LLM wrapper for calling OpenAI models."""
     
     def __init__(self):
-        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.client = OpenAI(api_key=settings.external_apis.openai_api_key)
     
     def _log_usage(self, model: str, usage):
         """Log token usage and response details if debug is enabled."""
-        print(f"DEBUG CHECK: llm_debug={settings.llm_debug}")
+        print(f"DEBUG CHECK: llm_debug={settings.models.llm_debug}")
         
-        if not settings.llm_debug:
+        if not settings.models.llm_debug:
             return
         
         logger.info(

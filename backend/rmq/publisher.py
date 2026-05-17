@@ -13,13 +13,13 @@ logger = get_logger("rmq.publisher")
 
 
 async def publish_task(task: TaskMessage):
-    channel = await rabbitmq.get_channel(settings.prefetch_count)
+    channel = await rabbitmq.get_channel(settings.rmq.prefetch_count)
 
     try:
         await channel.declare_queue(
-            settings.task_queue_name,
+            settings.rmq.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.max_priority},
+            arguments={"x-max-priority": settings.rmq.max_priority},
         )
 
         message = aio_pika.Message(
@@ -30,7 +30,7 @@ async def publish_task(task: TaskMessage):
 
         await channel.default_exchange.publish(
             message,
-            routing_key=settings.task_queue_name
+            routing_key=settings.rmq.task_queue_name
         )
     finally:
         await channel.close()
@@ -58,7 +58,7 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
             if not future.done():
                 future.set_exception(e)
 
-    channel = await rabbitmq.get_channel(settings.prefetch_count)
+    channel = await rabbitmq.get_channel(settings.rmq.prefetch_count)
 
     try:
         await channel.set_qos(prefetch_count=1)
@@ -71,9 +71,9 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
         await reply_queue.consume(on_response, no_ack=True)
 
         await channel.declare_queue(
-            settings.task_queue_name,
+            settings.rmq.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.max_priority},
+            arguments={"x-max-priority": settings.rmq.max_priority},
         )
 
         message = aio_pika.Message(
@@ -86,7 +86,7 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
 
         await channel.default_exchange.publish(
             message,
-            routing_key=settings.task_queue_name,
+            routing_key=settings.rmq.task_queue_name,
         )
 
         if timeout is not None:
@@ -97,11 +97,11 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
 
 
 async def publish_workflow(workflow: WorkflowMessage):
-    channel = await rabbitmq.get_channel(settings.prefetch_count)
+    channel = await rabbitmq.get_channel(settings.rmq.prefetch_count)
 
     try:
         await channel.declare_queue(
-            settings.workflow_queue_name,
+            settings.rmq.workflow_queue_name,
             durable=True,
         )
 
@@ -112,7 +112,7 @@ async def publish_workflow(workflow: WorkflowMessage):
 
         await channel.default_exchange.publish(
             message,
-            routing_key=settings.workflow_queue_name,
+            routing_key=settings.rmq.workflow_queue_name,
         )
     finally:
         await channel.close()
