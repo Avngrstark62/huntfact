@@ -50,7 +50,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         logger.info(f"Starting transcription for {ext} audio ({len(audio_bytes)} bytes)")
 
         # Initialize client with API key from config
-        client = OpenAI(api_key=settings.external_apis.openai_api_key)
+        client = OpenAI(api_key=settings.openai.api_key)
 
         transcript = await asyncio.to_thread(
             client.audio.transcriptions.create,

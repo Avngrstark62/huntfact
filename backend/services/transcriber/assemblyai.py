@@ -47,7 +47,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         logger.info(f"Starting transcription for {fmt} audio ({len(audio_bytes)} bytes)")
         
         headers = {
-            "authorization": settings.transcription.assemblyai_api_key,
+            "authorization": settings.assemblyai.api_key,
             "content-type": "application/json"
         }
 
@@ -55,7 +55,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         # STEP 1: Upload audio
         # ------------------------
         upload_headers = {
-            "authorization": settings.transcription.assemblyai_api_key
+            "authorization": settings.assemblyai.api_key
         }
 
         upload_response = requests.post(

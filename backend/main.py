@@ -7,7 +7,7 @@ logger = get_logger("main")
 
 if __name__ == "__main__":
     logger.info(
-        f"Starting {settings.app.app_name} on {settings.app.host}:{settings.app.port}"
+        f"Starting {settings.app.name} on {settings.app.host}:{settings.app.port}"
     )
     logger.info(f"Debug mode: {settings.app.debug}")
     import uvicorn

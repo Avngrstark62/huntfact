@@ -69,7 +69,7 @@ Translate this text to English and return only the translated text:
     
     try:
         result = await llm.call_with_schema(
-            model=settings.models.cheap_model,
+            model=settings.llm.cheap_model,
             messages=messages,
             schema_model=TranslationResponse,
         )

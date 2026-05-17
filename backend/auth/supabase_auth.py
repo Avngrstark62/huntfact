@@ -130,7 +130,7 @@ def get_authenticated_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> AuthenticatedUser:
-    if settings.auth.disable_auth:
+    if settings.auth.disable:
         user = AuthenticatedUser(sub="disabled-auth-user")
         request.state.authenticated_user = user
         return user

@@ -12,7 +12,7 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
     if not cleaned_url:
         raise ValueError("URL is required")
 
-    app = Firecrawl(api_url=settings.external_apis.firecrawl_api_url)
+    app = Firecrawl(api_url=settings.firecrawl.api_url)
 
     try:
         response = app.scrape(cleaned_url, formats=["markdown"])

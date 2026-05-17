@@ -8,7 +8,7 @@ from config import settings
 from services.translator.translator import translate_utterances
 
 async def test_translator():
-    print(f"LLM Debug enabled: {settings.models.llm_debug}")
+    print(f"LLM Debug enabled: {settings.llm.debug}")
   #   utterances = [{
   #   "speaker": "P",
   #   "text": "क्या आप मेरा नाम जानते हैं?",

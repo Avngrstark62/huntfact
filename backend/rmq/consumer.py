@@ -10,12 +10,12 @@ logger = get_logger("rmq.consumer")
 
 async def start_task_consumer(handler):
     try:
-        channel = await rabbitmq.get_channel(settings.rmq.prefetch_count)
+        channel = await rabbitmq.get_channel(settings.rabbitmq.prefetch_count)
 
         queue = await channel.declare_queue(
-            settings.rmq.task_queue_name,
+            settings.rabbitmq.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.rmq.max_priority},
+            arguments={"x-max-priority": settings.rabbitmq.max_priority},
         )
 
         async with queue.iterator() as queue_iter:
@@ -37,10 +37,10 @@ async def start_task_consumer(handler):
 
 async def start_workflow_consumer(handler):
     try:
-        channel = await rabbitmq.get_channel(settings.rmq.prefetch_count)
+        channel = await rabbitmq.get_channel(settings.rabbitmq.prefetch_count)
 
         queue = await channel.declare_queue(
-            settings.rmq.workflow_queue_name,
+            settings.rabbitmq.workflow_queue_name,
             durable=True,
         )
 

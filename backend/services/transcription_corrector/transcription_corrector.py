@@ -73,7 +73,7 @@ async def correct_transcription(transcripts: List[str]) -> str:
     ]
 
     result = await llm.call_with_schema(
-        model=settings.models.reasoning_model,
+        model=settings.llm.reasoning_model,
         messages=messages,
         schema_model=CorrectedTranscriptionResponse,
     )

@@ -22,7 +22,7 @@ def initialize_firebase():
         return
     
     try:
-        service_account_path = settings.firebase.firebase_credentials_path
+        service_account_path = settings.firebase.credentials_path
         
         if not os.path.exists(service_account_path):
             logger.warning(f"Firebase service account key not found at {service_account_path}")
