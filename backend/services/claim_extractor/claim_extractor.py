@@ -56,33 +56,36 @@ async def extract_claim_clusters(content: str) -> List[List[str]]:
 
     logger.info(f"Extracting claim clusters from content ({len(content)} chars)")
 
-    prompt = f"""Extract objective factual claims from the content and group them into clusters for web verification.
+    prompt = f"""Extract objective factual claims from the content and group them into verification clusters.
 
 Definitions:
-1. Claim:
-- A factual, objective statement that can be verified as true or false.
-- Must be standalone and independent.
-- Avoid references like "it", "they", "this" when antecedent is outside the claim.
-- Keep each claim self-contained.
-- Must be directly stated in the content.
-- Include full identifying context so the claim is meaningful alone (who/what/where/when as needed).
 
-2. Cluster:
-- A list of claims that can all be verified with one web search.
-- If two claims require different web searches to verify, they must be in different clusters.
-- Similar wording does not matter; verification search intent is what matters.
+1. Claim
+- A claim is a standalone real-world assertion that can be independently verified.
+- Extract the underlying factual meaning, not the exact wording.
+- Preserve the core asserted event/state/relation, not decorative or rhetorical details.
+- Remove incidental details that are not essential for verification.
+- Keep the minimal sufficient context needed for verification.
+- Resolve references and missing context so the claim is fully standalone.
+- Include explicit entities, subjects, locations, and time context when required.
+- Do not split dependent context across separate claims.
+- Do not invent or infer facts not asserted in the content.
 
-Output requirements:
-- Return only objective factual claims about publicly verifiable real-world topics.
-- Focus on claims about public events, public institutions, public policy, history, science, economics, sports, or notable public figures/entities.
-- Exclude opinions, predictions, and normative statements.
-- Exclude personal anecdotes, creator-specific personal incidents, private disputes, threats, self-promotion, marketing copy, and "my channel/my class/my followers" style claims.
-- Exclude claims about niche social-media drama or claims that cannot be independently verified through broadly available web sources.
-- Keep claims concise and precise.
-- Group all extracted claims into one or more clusters.
-- Do not invent, infer, or add background facts that are not explicitly asserted in the content.
-- If the content has no objective factual claims, return an empty clusters list.
-- If a claim depends on missing context from another sentence, rewrite it to be fully standalone; if that is not possible, discard it.
+2. Cluster
+- A cluster contains claims that can be verified using the same search intent and evidence set.
+- Claims requiring different evidence or search intent must be separated.
+
+Extraction Rules:
+- Focus only on objective, publicly verifiable claims.
+- Exclude opinions, predictions, speculation, rhetoric, emotional framing, and normative statements.
+- Exclude private/personal incidents that cannot be broadly verified.
+- Prefer semantically canonical claims optimized for verification and retrieval.
+- Avoid overly literal extraction.
+- Avoid over-specific wording that may cause verification failure.
+- Avoid vague or underspecified claims.
+- Each claim must represent one atomic verifiable assertion.
+- Keep claims concise but semantically complete.
+- If no valid factual claims exist, return an empty clusters list.
 
 Content:
 {content}
