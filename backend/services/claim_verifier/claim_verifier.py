@@ -10,7 +10,7 @@ from services.embeddings.embeddings import get_embeddings
 
 logger = get_logger("services.claim_verifier.claim_verifier")
 
-ALLOWED_VERDICTS = {"true", "false", "partially true", "no verdict"}
+ALLOWED_VERDICTS = {"true", "mostly true", "mostly false", "false", "unverified"}
 MAX_QUERIES = 6
 MAX_CHUNKS_PER_QUERY = 5
 MAX_DISTANCE = 0.35
@@ -18,7 +18,7 @@ MAX_DISTANCE = 0.35
 
 class ClaimVerificationRow(BaseModel):
     claim: str
-    verdict: Literal["true", "false", "partially true", "no verdict"]
+    verdict: Literal["true", "mostly true", "mostly false", "false", "unverified"]
     sources: List[str]
     explanation: str
 
@@ -183,14 +183,14 @@ def _normalize_rows(
             normalized_rows.append(
                 {
                     "claim": claim,
-                    "verdict": "no verdict",
+                    "verdict": "unverified",
                     "sources": [],
                     "explanation": "No claim-specific verdict could be generated from the provided context.",
                 }
             )
             continue
 
-        verdict = matched.verdict if matched.verdict in ALLOWED_VERDICTS else "no verdict"
+        verdict = matched.verdict if matched.verdict in ALLOWED_VERDICTS else "unverified"
         sources = [url for url in matched.sources if isinstance(url, str) and url in allowed_urls]
         explanation = matched.explanation.strip()
         if not explanation:
@@ -220,7 +220,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
             "rows": [
                 {
                     "claim": claim,
-                    "verdict": "no verdict",
+                    "verdict": "unverified",
                     "sources": [],
                     "explanation": "No valid RAG collection was provided for verification.",
                 }
@@ -250,7 +250,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
             "rows": [
                 {
                     "claim": claim,
-                    "verdict": "no verdict",
+                    "verdict": "unverified",
                     "sources": [],
                     "explanation": "No relevant retrieved evidence was found for this claim cluster.",
                 }
@@ -274,7 +274,7 @@ Rules:
 - Do not use prior knowledge, assumptions, or common sense outside the given context.
 - Return one row for every claim.
 - Keep claim text exactly as provided.
-- Verdict must be one of: true, false, partially true, no verdict.
+- Verdict must be one of: true, mostly true, mostly false, false, unverified.
 - Include only URLs from the provided context that are directly used for that specific claim.
 - Explanation must be 50-300 words, detailed but non-redundant.
 """
@@ -283,8 +283,15 @@ Rules:
         {
             "role": "system",
             "content": (
-                "You verify claims strictly from provided evidence. "
-                "If evidence is insufficient or conflicting, use 'no verdict'."
+                "You are an evidence-bound claim verifier. Judge each claim using a five-tier epistemic theory: "
+                "TRUE, MOSTLY TRUE, MOSTLY FALSE, FALSE, UNVERIFIED. "
+                "Use principled reasoning, not pattern matching. "
+                "TRUE applies when the claim is materially accurate, supported by strong evidence, with no meaningful contradiction and only negligible deviation. "
+                "MOSTLY TRUE applies when the core proposition is correct but there are minor inaccuracies, approximations, or non-material simplifications. "
+                "MOSTLY FALSE applies when some factual basis exists but the central implication is incorrect or materially misleading in context. "
+                "FALSE applies only when sufficiently strong evidence directly contradicts the claim; lack of support alone does not justify FALSE. "
+                "UNVERIFIED applies when available evidence is insufficient to establish support or contradiction, including ambiguity, underspecification, weak retrieval, or inaccessible evidence. "
+                "Treat uncertainty explicitly and avoid binary absolutism when evidence quality or claim precision is limited."
             ),
         },
         {
