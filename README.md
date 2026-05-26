@@ -104,6 +104,12 @@ flowchart LR
 
 ---
 
+## License
+
+This project is licensed under [Apache 2.0](LICENSE).
+
+---
+
 ## 🤝 Contribution
 
 We are currently preparing HuntFact for open-source contributions.
