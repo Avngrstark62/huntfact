@@ -6,5 +6,5 @@
     </domain-config>
 
     <!-- All other domains require HTTPS -->
-    <default-config cleartextTrafficPermitted="false" />
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>
