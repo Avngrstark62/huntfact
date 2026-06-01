@@ -1,0 +1,18 @@
+# Start in detached mode
+
+```bash
+docker compose up -d --build --scale worker=4 --scale orchestrator=2
+```
+
+Useful follow-up commands:
+
+```bash
+# View logs
+docker compose logs -f
+
+# Check running containers
+docker compose ps
+
+# Stop everything
+docker compose down
+```
