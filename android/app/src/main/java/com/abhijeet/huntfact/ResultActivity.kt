@@ -21,9 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.FilterList
-import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.ManageSearch
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -141,7 +139,7 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
                 },
             )
             IconMetaRow(
-                icon = Icons.Rounded.Link,
+                icon = Icons.Rounded.Home,
                 text = hunt.caption?.takeIf { it.isNotBlank() } ?: hunt.videoLink,
             )
 
@@ -164,7 +162,7 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
                         Icon(
-                            imageVector = Icons.Rounded.ManageSearch,
+                            imageVector = Icons.Rounded.Home,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                         )
@@ -233,7 +231,7 @@ private fun VerdictFilterRow(
                 ) {
                     if (isSelected) {
                         Icon(
-                            imageVector = Icons.Rounded.FilterList,
+                            imageVector = Icons.Rounded.Home,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                         )
@@ -318,7 +316,7 @@ private fun ClaimRowCard(row: ClaimRow) {
                         },
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Link,
+                            imageVector = Icons.Rounded.Home,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                         )

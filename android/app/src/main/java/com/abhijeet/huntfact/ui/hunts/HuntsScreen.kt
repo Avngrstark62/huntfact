@@ -33,9 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AccessTime
-import androidx.compose.material.icons.rounded.AlternateEmail
-import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Home
 import com.abhijeet.huntfact.ui.components.HeroHeaderCard
 import com.abhijeet.huntfact.ui.components.IconMetaRow
 import com.abhijeet.huntfact.hunts.HuntItem
@@ -262,13 +260,13 @@ private fun HuntCard(
             }
             hunt.creatorHandle?.takeIf { it.isNotBlank() }?.let {
                 IconMetaRow(
-                    icon = Icons.Rounded.AlternateEmail,
+                    icon = Icons.Rounded.Home,
                     text = it,
                 )
             }
             hunt.updatedAt?.takeIf { it.isNotBlank() }?.let {
                 IconMetaRow(
-                    icon = Icons.Rounded.AccessTime,
+                    icon = Icons.Rounded.Home,
                     text = it,
                 )
             }
@@ -278,7 +276,7 @@ private fun HuntCard(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.ErrorOutline,
+                        imageVector = Icons.Rounded.Home,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error,
                     )

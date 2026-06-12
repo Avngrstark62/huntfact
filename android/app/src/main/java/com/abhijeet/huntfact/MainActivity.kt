@@ -23,10 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoGraph
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.QueryStats
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.NavigationBar
@@ -301,7 +298,7 @@ private fun AnalyzeScreen(modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(AppSpacing.lg),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.QueryStats,
+                    imageVector = Icons.Rounded.Home,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -328,7 +325,7 @@ private fun AnalyzeScreen(modifier: Modifier = Modifier) {
 
 private fun AppTab.icon() = when (this) {
     AppTab.Home -> Icons.Rounded.Home
-    AppTab.Analyze -> Icons.Rounded.AutoGraph
-    AppTab.History -> Icons.Rounded.History
+    AppTab.Analyze -> Icons.Rounded.Home
+    AppTab.History -> Icons.Rounded.Home
 }
 
