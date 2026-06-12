@@ -10,13 +10,31 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoGraph
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.QueryStats
+import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,8 +44,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -35,6 +57,7 @@ import androidx.lifecycle.lifecycleScope
 import com.abhijeet.huntfact.ui.theme.AndroidTheme
 import com.abhijeet.huntfact.ui.hunts.HuntsScreen
 import com.abhijeet.huntfact.ui.hunts.HuntsViewModel
+import com.abhijeet.huntfact.ui.theme.AppSpacing
 import com.abhijeet.huntfact.ui.profile.ProfileViewModel
 import com.abhijeet.huntfact.ui.resources.ResourcesViewModel
 import com.abhijeet.huntfact.utils.AuthSessionManager
@@ -141,6 +164,11 @@ fun MainScreen(
     val context = LocalContext.current
     val selectedTab = remember { mutableStateOf(AppTab.Home) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val selectedBlend = lerp(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.secondary,
+        0.35f,
+    )
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -157,54 +185,99 @@ fun MainScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ) {
                 AppTab.entries.forEach { tab ->
+                    val selected = selectedTab.value == tab
                     NavigationBarItem(
-                        selected = selectedTab.value == tab,
+                        selected = selected,
                         onClick = { selectedTab.value = tab },
-                        icon = { Text(tab.label.take(1)) },
-                        label = { Text(tab.label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = selectedBlend,
+                            selectedTextColor = selectedBlend,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            indicatorColor = MaterialTheme.colorScheme.surface,
+                        ),
+                        icon = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs),
+                                modifier = Modifier
+                                    .then(
+                                        if (selected) {
+                                            Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(selectedBlend.copy(alpha = 0.14f))
+                                                .padding(horizontal = AppSpacing.sm, vertical = AppSpacing.xs)
+                                        } else {
+                                            Modifier.padding(horizontal = AppSpacing.sm, vertical = AppSpacing.xs)
+                                        },
+                                    ),
+                            ) {
+                                Icon(
+                                    imageVector = tab.icon(),
+                                    contentDescription = tab.label,
+                                    tint = if (selected) selectedBlend else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = tab.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (selected) selectedBlend else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                        label = null,
+                        alwaysShowLabel = false,
                     )
                 }
             }
         },
     ) { innerPadding ->
-        when (selectedTab.value) {
-            AppTab.Home -> HuntsScreen(
-                uiState = huntsUiState,
-                onRefresh = { huntsViewModel.refreshHunts() },
-                onSignIn = { huntsViewModel.signInWithGoogle() },
-                onSignOut = { huntsViewModel.signOut() },
-                onOpenHunt = { hunt ->
-                    context.startActivity(
-                        Intent(context, ResultActivity::class.java).apply {
-                            putExtra(ResultActivity.EXTRA_HUNT_ID, hunt.id)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                    )
-                },
-                modifier = Modifier.padding(innerPadding),
-            )
-            AppTab.Analyze -> AnalyzeScreen(modifier = Modifier.padding(innerPadding))
-            AppTab.History -> HuntsScreen(
-                uiState = huntsUiState,
-                onRefresh = {},
-                onSignIn = { huntsViewModel.signInWithGoogle() },
-                onSignOut = {},
-                onOpenHunt = { hunt ->
-                    context.startActivity(
-                        Intent(context, ResultActivity::class.java).apply {
-                            putExtra(ResultActivity.EXTRA_HUNT_ID, hunt.id)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                    )
-                },
-                showSectionTitle = false,
-                showSummary = false,
-                showActionButtons = false,
-                showMessage = false,
-                modifier = Modifier.padding(innerPadding),
-            )
+        AnimatedContent(
+            targetState = selectedTab.value,
+            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(180)) },
+            modifier = Modifier.padding(innerPadding),
+            label = "tab-switch",
+        ) { tab ->
+            when (tab) {
+                AppTab.Home -> HuntsScreen(
+                    uiState = huntsUiState,
+                    onRefresh = { huntsViewModel.refreshHunts() },
+                    onSignIn = { huntsViewModel.signInWithGoogle() },
+                    onSignOut = { huntsViewModel.signOut() },
+                    onOpenHunt = { hunt ->
+                        context.startActivity(
+                            Intent(context, ResultActivity::class.java).apply {
+                                putExtra(ResultActivity.EXTRA_HUNT_ID, hunt.id)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                        )
+                    },
+                    modifier = Modifier,
+                )
+                AppTab.Analyze -> AnalyzeScreen(modifier = Modifier)
+                AppTab.History -> HuntsScreen(
+                    uiState = huntsUiState,
+                    onRefresh = {},
+                    onSignIn = { huntsViewModel.signInWithGoogle() },
+                    onSignOut = {},
+                    onOpenHunt = { hunt ->
+                        context.startActivity(
+                            Intent(context, ResultActivity::class.java).apply {
+                                putExtra(ResultActivity.EXTRA_HUNT_ID, hunt.id)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                        )
+                    },
+                    showSectionTitle = false,
+                    showSummary = false,
+                    showActionButtons = false,
+                    showMessage = false,
+                    modifier = Modifier,
+                )
+            }
         }
     }
 }
@@ -214,18 +287,48 @@ private fun AnalyzeScreen(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = com.abhijeet.huntfact.ui.theme.AppSpacing.md),
+            .padding(AppSpacing.md),
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(
-            text = "Analyze",
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Text(
-            text = "Analyze page template coming soon.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(AppSpacing.lg),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.QueryStats,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "Analyze",
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                Text(
+                    text = "Deeper claim analysis tools are coming soon.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    shape = RoundedCornerShape(999.dp),
+                ) {
+                    Text("Enable when ready")
+                }
+            }
+        }
     }
+}
+
+private fun AppTab.icon() = when (this) {
+    AppTab.Home -> Icons.Rounded.Home
+    AppTab.Analyze -> Icons.Rounded.AutoGraph
+    AppTab.History -> Icons.Rounded.History
 }
 
