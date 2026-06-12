@@ -50,6 +50,10 @@
             android:name=".ResultActivity"
             android:exported="false"
             android:label="Fact Check Result" />
+        <activity
+            android:name=".ClaimDetailActivity"
+            android:exported="false"
+            android:label="Claim Detail" />
 
         <service
             android:name=".notifications.FactCheckMessagingService"

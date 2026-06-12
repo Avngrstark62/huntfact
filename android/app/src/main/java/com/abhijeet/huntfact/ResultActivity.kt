@@ -3,10 +3,9 @@ package com.abhijeet.huntfact
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.ComponentActivity
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,38 +14,32 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.abhijeet.huntfact.hunts.HuntRepository
 import com.abhijeet.huntfact.ui.components.EmptyStateView
-import com.abhijeet.huntfact.ui.components.HeroHeaderCard
-import com.abhijeet.huntfact.ui.components.IconMetaRow
 import com.abhijeet.huntfact.ui.components.SectionTitle
-import com.abhijeet.huntfact.ui.components.StatusChip
-import com.abhijeet.huntfact.ui.components.VerdictChip
 import com.abhijeet.huntfact.ui.theme.AndroidTheme
 import com.abhijeet.huntfact.ui.theme.AppSpacing
 import com.google.gson.JsonParser
@@ -105,23 +98,20 @@ class ResultActivity : ComponentActivity() {
 private data class ClaimRow(
     val claim: String,
     val verdict: String,
+    val confidencePercent: Int,
     val sources: List<String>,
     val explanation: String,
 )
 
+private val TrustSummaryCardHeight = 124.dp
+private const val DEFAULT_CLAIM_CONFIDENCE_PERCENT = 78
+
 @Composable
 private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
     val allRows = remember(hunt.result) { parseRows(hunt.result) }
-    var selectedVerdict by remember { mutableStateOf("all") }
-    var searchTerm by remember { mutableStateOf("") }
-
-    val filteredRows = remember(allRows, selectedVerdict, searchTerm) {
-        allRows.filter { row ->
-            val verdictMatch = selectedVerdict == "all" || row.verdict.equals(selectedVerdict, ignoreCase = true)
-            val searchMatch = searchTerm.isBlank() || row.claim.contains(searchTerm, ignoreCase = true)
-            verdictMatch && searchMatch
-        }
-    }
+    val claimCountLabel = "${allRows.size} claims"
+    val claimStats = remember(allRows) { computeResultClaimStats(allRows) }
+    val context = LocalContext.current
 
     Scaffold { innerPadding ->
         Column(
@@ -131,17 +121,16 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
                 .padding(AppSpacing.md),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
         ) {
-            HeroHeaderCard(
-                title = "Result",
-                subtitle = "Hunt #${hunt.id}",
-                statsContent = {
-                    StatusChip(status = hunt.status)
-                },
+            Text(
+                text = "Can I trust this?",
+                style = MaterialTheme.typography.headlineMedium,
             )
-            IconMetaRow(
-                icon = Icons.Rounded.Home,
-                text = hunt.caption?.takeIf { it.isNotBlank() } ?: hunt.videoLink,
+            Text(
+                text = claimCountLabel,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            TrustSummaryCard(trustScore = hunt.trustScore)
 
             if (hunt.result.isNullOrBlank()) {
                 EmptyStateView(
@@ -151,95 +140,63 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
                 return@Column
             }
 
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
             ) {
-                Column(
-                    modifier = Modifier.padding(AppSpacing.md),
-                    verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
-                        Icon(
-                            imageVector = Icons.Rounded.Home,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                item {
+                    HuntSummaryCard(
+                        summary = hunt.summary,
+                    )
+                }
+                item {
+                    ClaimStatsGrid(
+                        falseClaims = claimStats.falseClaims,
+                        unverifiedClaims = claimStats.unverifiedClaims,
+                        trueClaims = claimStats.trueClaims,
+                        totalClaims = claimStats.totalClaims,
+                    )
+                }
+                if (allRows.isEmpty()) {
+                    item {
+                        EmptyStateView(
+                            title = "No claims found",
+                            subtitle = "This result has no claim rows yet.",
                         )
-                        Text("Search and filters", style = MaterialTheme.typography.titleMedium)
                     }
-                    OutlinedTextField(
-                        value = searchTerm,
-                        onValueChange = { searchTerm = it },
-                        label = { Text("Search claims") },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    VerdictFilterRow(
-                        selected = selectedVerdict,
-                        onSelect = { selectedVerdict = it },
-                    )
-                }
-            }
-
-            if (filteredRows.isEmpty()) {
-                EmptyStateView(
-                    title = "No matching results",
-                    subtitle = "Try changing filters or search text.",
-                )
-                return@Column
-            }
-
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
-                items(filteredRows) { row ->
-                    ClaimRowCard(row = row)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun VerdictFilterRow(
-    selected: String,
-    onSelect: (String) -> Unit,
-) {
-    val values = listOf("all", "true", "false", "partially true", "no verdict")
-    Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
-        values.forEach { verdict ->
-            val label = if (verdict == "all") "All" else verdict.replaceFirstChar { it.uppercase() }
-            val isSelected = selected == verdict
-            val containerColor by animateColorAsState(
-                targetValue = if (isSelected) {
-                    MaterialTheme.colorScheme.primaryContainer
                 } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-                animationSpec = tween(durationMillis = 120),
-                label = "filter-chip-bg",
-            )
-            Card(
-                modifier = Modifier.clickable { onSelect(verdict) },
-                colors = CardDefaults.cardColors(
-                    containerColor = containerColor
-                ),
-                shape = RoundedCornerShape(999.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs),
-                    modifier = Modifier.padding(horizontal = AppSpacing.sm, vertical = AppSpacing.xs),
-                ) {
-                    if (isSelected) {
-                        Icon(
-                            imageVector = Icons.Rounded.Home,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+                            Text(
+                                text = "Claims",
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                            Text(
+                                text = "Tap any claim for full evidence",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    itemsIndexed(allRows) { index, row ->
+                        ClaimRowCard(
+                            row = row,
+                            onClick = {
+                                context.startActivity(
+                                    ClaimDetailActivity.createIntent(
+                                        context = context,
+                                        claimText = row.claim,
+                                        verdict = row.verdict,
+                                        confidencePercent = row.confidencePercent,
+                                        explanation = row.explanation,
+                                        sources = row.sources,
+                                        claimIndex = index + 1,
+                                        totalClaims = allRows.size,
+                                    ),
+                                )
+                            },
                         )
                     }
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
                 }
             }
         }
@@ -247,90 +204,298 @@ private fun VerdictFilterRow(
 }
 
 @Composable
-private fun ClaimRowCard(row: ClaimRow) {
-    val uriHandler = LocalUriHandler.current
-    var expanded by remember { mutableStateOf(false) }
+private fun TrustSummaryCard(trustScore: Int) {
+    val normalizedScore = trustScore.coerceIn(0, 100)
+    val trustColor = trustScoreColor(normalizedScore)
+    val trustBand = remember(normalizedScore) { trustBandForScore(normalizedScore) }
+    val cardShape = RoundedCornerShape(18.dp)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(TrustSummaryCardHeight),
+        shape = cardShape,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = AppSpacing.md, vertical = AppSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.md),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(88.dp)
+                    .background(trustColor.copy(alpha = 0.16f), CircleShape)
+                    .border(width = 1.4.dp, color = trustColor.copy(alpha = 0.58f), shape = CircleShape),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
+                Text(
+                    text = normalizedScore.toString(),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = trustColor,
+                )
+            }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
+            ) {
+                Text(
+                    text = trustBand.title,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = trustBand.description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HuntSummaryCard(summary: String?) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 84.dp, max = 220.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
+        ) {
+            Text(
+                text = "Summary",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = summary?.takeIf { it.isNotBlank() } ?: "Summary will be available soon.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 10,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClaimStatsGrid(
+    falseClaims: Int,
+    unverifiedClaims: Int,
+    trueClaims: Int,
+    totalClaims: Int,
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            ClaimStatTile(
+                value = falseClaims,
+                label = "false",
+                color = Color(0xFFE53935),
+                modifier = Modifier.weight(1f),
+            )
+            ClaimStatTile(
+                value = unverifiedClaims,
+                label = "unverified",
+                color = Color(0xFFFFB300),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            ClaimStatTile(
+                value = trueClaims,
+                label = "true",
+                color = Color(0xFF2E7D32),
+                modifier = Modifier.weight(1f),
+            )
+            ClaimStatTile(
+                value = totalClaims,
+                label = "total claims",
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClaimStatTile(
+    value: Int,
+    label: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier
+            .height(88.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(AppSpacing.md),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.headlineSmall,
+                color = color,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                color = color,
+            )
+        }
+    }
+}
+
+private data class TrustBand(val title: String, val description: String)
+private data class ResultClaimStats(
+    val falseClaims: Int,
+    val unverifiedClaims: Int,
+    val trueClaims: Int,
+    val totalClaims: Int,
+)
+
+private fun computeResultClaimStats(rows: List<ClaimRow>): ResultClaimStats {
+    var falseCount = 0
+    var unverifiedCount = 0
+    var trueCount = 0
+
+    rows.forEach { row ->
+        when (normalizeResultVerdict(row.verdict)) {
+            ResultVerdict.FALSE -> falseCount += 1
+            ResultVerdict.UNVERIFIED -> unverifiedCount += 1
+            ResultVerdict.TRUE -> trueCount += 1
+        }
+    }
+
+    return ResultClaimStats(
+        falseClaims = falseCount,
+        unverifiedClaims = unverifiedCount,
+        trueClaims = trueCount,
+        totalClaims = rows.size,
+    )
+}
+
+private enum class ResultVerdict {
+    TRUE,
+    FALSE,
+    UNVERIFIED,
+}
+
+private fun normalizeResultVerdict(rawVerdict: String): ResultVerdict {
+    val normalized = rawVerdict.trim().lowercase()
+    return when {
+        "false" in normalized -> ResultVerdict.FALSE
+        normalized == "true" -> ResultVerdict.TRUE
+        else -> ResultVerdict.UNVERIFIED
+    }
+}
+
+private fun trustBandForScore(score: Int): TrustBand {
+    return when (score) {
+        in 0..40 -> TrustBand(
+            title = "Low trust",
+            description = "Multiple false claims detected. Use caution sharing.",
+        )
+        in 41..69 -> TrustBand(
+            title = "Moderate trust",
+            description = "Some claims are uncertain. Verify key points before sharing.",
+        )
+        else -> TrustBand(
+            title = "High trust",
+            description = "Most claims appear accurate based on available evidence.",
+        )
+    }
+}
+
+private fun trustScoreColor(score: Int): Color {
+    return when (score) {
+        in 0..40 -> Color(0xFFE53935)
+        in 41..69 -> Color(0xFFFFB300)
+        else -> Color(0xFF2E7D32)
+    }
+}
+
+@Composable
+private fun ClaimRowCard(
+    row: ClaimRow,
+    onClick: () -> Unit,
+) {
+    val verdict = normalizeResultVerdict(row.verdict)
+    val accentColor = verdictColor(verdict)
+    val iconRes = verdictIconRes(verdict)
+    val label = when (verdict) {
+        ResultVerdict.FALSE -> "false"
+        ResultVerdict.TRUE -> "true"
+        ResultVerdict.UNVERIFIED -> "unverified"
+    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(96.dp)
+            .clickable(onClick = onClick),
     ) {
-        Column(
-            modifier = Modifier.padding(AppSpacing.md),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = AppSpacing.md, vertical = AppSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+            Icon(
+                painter = painterResource(id = iconRes),
+                contentDescription = label,
+                tint = accentColor,
+                modifier = Modifier.size(26.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.xs),
             ) {
                 Text(
                     text = row.claim,
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(modifier = Modifier.width(AppSpacing.xs))
-                VerdictChip(verdict = row.verdict)
-            }
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = row.explanation,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (expanded) Int.MAX_VALUE else 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (!expanded && row.explanation.length > 140) {
-                    Spacer(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(36.dp)
-                            .align(androidx.compose.ui.Alignment.BottomCenter)
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.surface.copy(alpha = 0f),
-                                        MaterialTheme.colorScheme.surface,
-                                    ),
-                                ),
-                            ),
-                    )
-                }
-            }
-            if (row.explanation.length > 140) {
                 Text(
-                    text = if (expanded) "Show less" else "Read more",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { expanded = !expanded },
+                    text = "$label . ${row.confidencePercent}% confidence",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = accentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-
-            if (row.sources.isNotEmpty()) {
-                Text("Sources", style = MaterialTheme.typography.labelLarge)
-                row.sources.forEach { source ->
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs),
-                        modifier = Modifier.clickable {
-                            runCatching { uriHandler.openUri(source) }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Home,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            text = source,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
         }
+    }
+}
+
+private fun verdictColor(verdict: ResultVerdict): Color {
+    return when (verdict) {
+        ResultVerdict.FALSE -> Color(0xFFE53935)
+        ResultVerdict.UNVERIFIED -> Color(0xFFFFB300)
+        ResultVerdict.TRUE -> Color(0xFF2E7D32)
+    }
+}
+
+private fun verdictIconRes(verdict: ResultVerdict): Int {
+    return when (verdict) {
+        ResultVerdict.FALSE -> android.R.drawable.ic_delete
+        ResultVerdict.UNVERIFIED -> android.R.drawable.ic_dialog_alert
+        ResultVerdict.TRUE -> R.drawable.ic_verdict_true
     }
 }
 
@@ -388,6 +553,7 @@ private fun parseRows(raw: String?): List<ClaimRow> {
             ClaimRow(
                 claim = claim,
                 verdict = verdict,
+                confidencePercent = DEFAULT_CLAIM_CONFIDENCE_PERCENT,
                 sources = sources,
                 explanation = explanation.ifBlank { "No explanation provided." },
             )
@@ -397,6 +563,7 @@ private fun parseRows(raw: String?): List<ClaimRow> {
             ClaimRow(
                 claim = "Result",
                 verdict = "no verdict",
+                confidencePercent = DEFAULT_CLAIM_CONFIDENCE_PERCENT,
                 sources = emptyList(),
                 explanation = raw.trim(),
             )

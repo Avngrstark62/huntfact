@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AddCircle
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
@@ -46,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -213,11 +215,23 @@ fun MainScreen(
                                         },
                                     ),
                             ) {
-                                Icon(
-                                    imageVector = tab.icon(),
-                                    contentDescription = tab.label,
-                                    tint = if (selected) selectedBlend else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                when (tab) {
+                                    AppTab.Home -> Icon(
+                                        imageVector = Icons.Rounded.Home,
+                                        contentDescription = tab.label,
+                                        tint = if (selected) selectedBlend else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    AppTab.Analyze -> Icon(
+                                        imageVector = Icons.Rounded.AddCircle,
+                                        contentDescription = tab.label,
+                                        tint = if (selected) selectedBlend else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    AppTab.History -> Icon(
+                                        painter = painterResource(id = R.drawable.ic_tab_history_clock),
+                                        contentDescription = tab.label,
+                                        tint = if (selected) selectedBlend else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                                 Text(
                                     text = tab.label,
                                     style = MaterialTheme.typography.labelMedium,
@@ -321,11 +335,5 @@ private fun AnalyzeScreen(modifier: Modifier = Modifier) {
             }
         }
     }
-}
-
-private fun AppTab.icon() = when (this) {
-    AppTab.Home -> Icons.Rounded.Home
-    AppTab.Analyze -> Icons.Rounded.Home
-    AppTab.History -> Icons.Rounded.Home
 }
 
