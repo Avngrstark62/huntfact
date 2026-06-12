@@ -10,11 +10,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -32,9 +35,7 @@ import androidx.lifecycle.lifecycleScope
 import com.abhijeet.huntfact.ui.theme.AndroidTheme
 import com.abhijeet.huntfact.ui.hunts.HuntsScreen
 import com.abhijeet.huntfact.ui.hunts.HuntsViewModel
-import com.abhijeet.huntfact.ui.profile.ProfileScreen
 import com.abhijeet.huntfact.ui.profile.ProfileViewModel
-import com.abhijeet.huntfact.ui.resources.ResourcesScreen
 import com.abhijeet.huntfact.ui.resources.ResourcesViewModel
 import com.abhijeet.huntfact.utils.AuthSessionManager
 import com.abhijeet.huntfact.utils.FcmTokenManager
@@ -122,9 +123,9 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class AppTab(val label: String) {
-    Hunts("Hunts"),
-    Resources("Resources"),
-    Profile("Profile"),
+    Home("Home"),
+    Analyze("Analyze"),
+    History("History"),
 }
 
 @Composable
@@ -138,7 +139,7 @@ fun MainScreen(
     val resourcesUiState by resourcesViewModel.uiState.collectAsState()
     val profileUiState by profileViewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val selectedTab = remember { mutableStateOf(AppTab.Hunts) }
+    val selectedTab = remember { mutableStateOf(AppTab.Home) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
@@ -169,7 +170,7 @@ fun MainScreen(
         },
     ) { innerPadding ->
         when (selectedTab.value) {
-            AppTab.Hunts -> HuntsScreen(
+            AppTab.Home -> HuntsScreen(
                 uiState = huntsUiState,
                 onRefresh = { huntsViewModel.refreshHunts() },
                 onSignIn = { huntsViewModel.signInWithGoogle() },
@@ -184,17 +185,47 @@ fun MainScreen(
                 },
                 modifier = Modifier.padding(innerPadding),
             )
-            AppTab.Resources -> ResourcesScreen(
-                uiState = resourcesUiState,
-                modifier = Modifier.padding(innerPadding),
-            )
-            AppTab.Profile -> ProfileScreen(
-                uiState = profileUiState,
-                onSignIn = { profileViewModel.signInWithGoogle() },
-                onSignOut = { profileViewModel.signOut() },
+            AppTab.Analyze -> AnalyzeScreen(modifier = Modifier.padding(innerPadding))
+            AppTab.History -> HuntsScreen(
+                uiState = huntsUiState,
+                onRefresh = {},
+                onSignIn = { huntsViewModel.signInWithGoogle() },
+                onSignOut = {},
+                onOpenHunt = { hunt ->
+                    context.startActivity(
+                        Intent(context, ResultActivity::class.java).apply {
+                            putExtra(ResultActivity.EXTRA_HUNT_ID, hunt.id)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                },
+                showSectionTitle = false,
+                showSummary = false,
+                showActionButtons = false,
+                showMessage = false,
                 modifier = Modifier.padding(innerPadding),
             )
         }
+    }
+}
+
+@Composable
+private fun AnalyzeScreen(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = com.abhijeet.huntfact.ui.theme.AppSpacing.md),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = "Analyze",
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Text(
+            text = "Analyze page template coming soon.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

@@ -215,3 +215,7 @@ translation_files/*
 temp/*
 translations/*
 transcriptions/*
+
+product.md
+ngrok.md
+ui.md

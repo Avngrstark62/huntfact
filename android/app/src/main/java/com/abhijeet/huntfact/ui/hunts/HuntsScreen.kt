@@ -32,6 +32,10 @@ fun HuntsScreen(
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onOpenHunt: (HuntItem) -> Unit,
+    showSectionTitle: Boolean = true,
+    showSummary: Boolean = true,
+    showActionButtons: Boolean = true,
+    showMessage: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -39,8 +43,10 @@ fun HuntsScreen(
             .fillMaxSize()
             .padding(horizontal = AppSpacing.md, vertical = AppSpacing.sm),
     ) {
-        SectionTitle("Hunts")
-        Spacer(modifier = Modifier.height(AppSpacing.sm))
+        if (showSectionTitle) {
+            SectionTitle("Hunts")
+            Spacer(modifier = Modifier.height(AppSpacing.sm))
+        }
 
         if (!uiState.isAuthenticated) {
             EmptyStateView(
@@ -54,27 +60,31 @@ fun HuntsScreen(
             return
         }
 
-        HuntsSummaryRow(
-            hunts = uiState.hunts,
-            isRefreshing = uiState.isRefreshing,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(modifier = Modifier.height(AppSpacing.sm))
+        if (showSummary) {
+            HuntsSummaryRow(
+                hunts = uiState.hunts,
+                isRefreshing = uiState.isRefreshing,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(modifier = Modifier.height(AppSpacing.sm))
+        }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
-            Button(
-                onClick = onRefresh,
-                modifier = Modifier.weight(1f),
-                enabled = !uiState.isRefreshing,
-            ) {
-                Text(if (uiState.isRefreshing) "Refreshing..." else "Refresh hunts")
-            }
-            Button(onClick = onSignOut, modifier = Modifier.weight(1f)) {
-                Text("Sign out")
+        if (showActionButtons) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs)) {
+                Button(
+                    onClick = onRefresh,
+                    modifier = Modifier.weight(1f),
+                    enabled = !uiState.isRefreshing,
+                ) {
+                    Text(if (uiState.isRefreshing) "Refreshing..." else "Refresh hunts")
+                }
+                Button(onClick = onSignOut, modifier = Modifier.weight(1f)) {
+                    Text("Sign out")
+                }
             }
         }
 
-        if (!uiState.message.isNullOrBlank()) {
+        if (showMessage && !uiState.message.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(AppSpacing.xs))
             Text(
                 text = uiState.message,
