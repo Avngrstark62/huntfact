@@ -22,6 +22,9 @@ data class StartHuntResponse(
     val hunt_id: Int,
     val status: String,
     val result: String? = null,
+    val title: String? = null,
+    val summary: String? = null,
+    val trust_score: Int? = null,
 )
 
 data class HuntDto(
@@ -29,6 +32,9 @@ data class HuntDto(
     val video_link: String,
     val status: String,
     val result: String? = null,
+    val title: String? = null,
+    val summary: String? = null,
+    val trust_score: Int? = null,
     val thumbnail_url: String? = null,
     val caption: String? = null,
     val creator_handle: String? = null,

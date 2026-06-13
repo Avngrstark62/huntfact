@@ -86,12 +86,23 @@ class Database:
 
         return session.query(Hunt).filter(Hunt.video_link == video_link).first()
 
-    def update_hunt_result(self, session: Session, hunt_id: int, result: str):
+    def update_hunt_result(
+        self,
+        session: Session,
+        hunt_id: int,
+        result: str,
+        title: str,
+        summary: str,
+        trust_score: int,
+    ):
         from db.models.hunt import Hunt
 
         hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
         if hunt:
             hunt.result = result
+            hunt.title = title
+            hunt.summary = summary
+            hunt.trust_score = trust_score
             hunt.status = "completed"
             hunt.error_message = None
             hunt.completed_at = datetime.now(timezone.utc)

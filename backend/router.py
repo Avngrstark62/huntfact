@@ -22,6 +22,18 @@ HUNT_STATUS_COMPLETED = "completed"
 HUNT_STATUS_FAILED = "failed"
 
 
+def _require_hunt_metadata(hunt) -> None:
+    if not hunt.title or not hunt.summary or hunt.trust_score is None:
+        raise RuntimeError(
+            f"Hunt metadata missing for hunt_id={hunt.id}. "
+            "title/summary/trust_score must be set before serving this response."
+        )
+
+
+def _is_completed(hunt) -> bool:
+    return hunt.status == HUNT_STATUS_COMPLETED
+
+
 @router.get("/health", response_model=HealthResponse, tags=["health"])
 def get_health() -> HealthResponse:
     """
@@ -143,6 +155,7 @@ async def start_hunt(
             )
             await publish_task(task)
             logger.info("Task published: %s", task.step)
+            _require_hunt_metadata(existing_hunt)
 
             return StartHuntResponse(
                 success=True,
@@ -150,6 +163,9 @@ async def start_hunt(
                 hunt_id=existing_hunt.id,
                 status=HUNT_STATUS_COMPLETED,
                 result=existing_hunt.result,
+                title=existing_hunt.title,
+                summary=existing_hunt.summary,
+                trust_score=existing_hunt.trust_score,
             )
 
         if existing_hunt.status == HUNT_STATUS_QUEUED:
@@ -164,13 +180,15 @@ async def start_hunt(
                 await _publish_hunt_workflow(existing_hunt.id)
             else:
                 logger.info("Queued hunt already being processed for hunt_id=%s", existing_hunt.id)
-
             return StartHuntResponse(
                 success=True,
                 message="Hunt started successfully",
                 hunt_id=existing_hunt.id,
                 status=HUNT_STATUS_PROCESSING,
                 result=None,
+                title=existing_hunt.title,
+                summary=existing_hunt.summary,
+                trust_score=existing_hunt.trust_score,
             )
 
         if existing_hunt.status == HUNT_STATUS_PROCESSING:
@@ -181,6 +199,9 @@ async def start_hunt(
                 hunt_id=existing_hunt.id,
                 status=HUNT_STATUS_PROCESSING,
                 result=None,
+                title=existing_hunt.title,
+                summary=existing_hunt.summary,
+                trust_score=existing_hunt.trust_score,
             )
 
         if existing_hunt.status == HUNT_STATUS_FAILED:
@@ -196,13 +217,15 @@ async def start_hunt(
                 await _publish_hunt_workflow(existing_hunt.id)
             else:
                 logger.info("Failed hunt already transitioned for hunt_id=%s", existing_hunt.id)
-
             return StartHuntResponse(
                 success=True,
                 message="Hunt started successfully",
                 hunt_id=existing_hunt.id,
                 status=HUNT_STATUS_PROCESSING,
                 result=None,
+                title=existing_hunt.title,
+                summary=existing_hunt.summary,
+                trust_score=existing_hunt.trust_score,
             )
 
         logger.info(
@@ -225,6 +248,9 @@ async def start_hunt(
             hunt_id=existing_hunt.id,
             status=HUNT_STATUS_PROCESSING,
             result=None,
+            title=existing_hunt.title,
+            summary=existing_hunt.summary,
+            trust_score=existing_hunt.trust_score,
         )
              
     except Exception as e:
@@ -253,12 +279,17 @@ async def get_hunt(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"detail": f"Hunt not found for hunt_id={hunt_id}"},
             )
+        if _is_completed(hunt):
+            _require_hunt_metadata(hunt)
 
         return HuntResponse(
             id=hunt.id,
             video_link=hunt.video_link,
             status=hunt.status,
             result=hunt.result,
+            title=hunt.title,
+            summary=hunt.summary,
+            trust_score=hunt.trust_score,
             thumbnail_url=hunt.thumbnail_url,
             caption=hunt.caption,
             creator_handle=hunt.creator_handle,
@@ -288,12 +319,18 @@ async def get_user_hunts(
     try:
         logger.info("Fetching hunts for user_id=%s", authenticated_user.sub)
         hunts = db.get_hunts_by_user_id(session, authenticated_user.sub)
-        return [
-            HuntResponse(
+        responses: list[HuntResponse] = []
+        for hunt in hunts:
+            if _is_completed(hunt):
+                _require_hunt_metadata(hunt)
+            responses.append(HuntResponse(
                 id=hunt.id,
                 video_link=hunt.video_link,
                 status=hunt.status,
                 result=hunt.result,
+                title=hunt.title,
+                summary=hunt.summary,
+                trust_score=hunt.trust_score,
                 thumbnail_url=hunt.thumbnail_url,
                 caption=hunt.caption,
                 creator_handle=hunt.creator_handle,
@@ -302,9 +339,8 @@ async def get_user_hunts(
                 created_at=hunt.created_at,
                 updated_at=hunt.updated_at,
                 completed_at=hunt.completed_at,
-            )
-            for hunt in hunts
-        ]
+            ))
+        return responses
     except Exception as e:
         logger.error(f"Unexpected error in get_user_hunts: {str(e)}", exc_info=settings.app.debug)
         return JSONResponse(

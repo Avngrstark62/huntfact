@@ -90,6 +90,7 @@ class ReelProcessingWorker(
                     val huntItem = HuntItem(
                         id = response.hunt_id,
                         videoLink = cleanedReelUrl,
+                        title = response.title,
                         status = response.status,
                         result = response.result,
                         thumbnailUrl = cleanedReelUrl,
@@ -100,6 +101,8 @@ class ReelProcessingWorker(
                         createdAt = null,
                         updatedAt = null,
                         completedAt = null,
+                        trustScore = response.trust_score?.coerceIn(0, 100),
+                        summary = response.summary,
                     )
                     HuntRepository(applicationContext).upsertLocal(huntItem)
                     Log.d(TAG, "✅ Successfully sent to HuntFact backend!")

@@ -276,7 +276,7 @@ private fun HuntCard(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    text = hunt.title?.takeIf { it.isNotBlank() } ?: "Claim verification report",
+                    text = hunt.title?.takeIf { it.isNotBlank() } ?: "Processing...",
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -290,7 +290,9 @@ private fun HuntCard(
                 )
             }
 
-            TrustScoreBadge(score = hunt.trustScore)
+            hunt.trustScore?.let { score ->
+                TrustScoreBadge(score = score)
+            } ?: StatusChip(status = hunt.status)
         }
     }
 }

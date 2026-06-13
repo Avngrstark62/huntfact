@@ -24,6 +24,9 @@ class StartHuntResponse(BaseModel):
     hunt_id: int = Field(..., description="The hunt id for status tracking")
     status: str = Field(..., description="Current hunt status")
     result: str | None = Field(None, description="The hunt result")
+    title: str | None = Field(None, description="Short title for the hunt summary")
+    summary: str | None = Field(None, description="One-paragraph summary for the hunt")
+    trust_score: int | None = Field(None, description="Overall trust score from 0 to 100")
 
 
 class HuntResponse(BaseModel):
@@ -31,6 +34,9 @@ class HuntResponse(BaseModel):
     video_link: str = Field(..., description="Video link for this hunt")
     status: str = Field(..., description="Current hunt status")
     result: str | None = Field(None, description="Fact-check result JSON string")
+    title: str | None = Field(None, description="Short title for the hunt summary")
+    summary: str | None = Field(None, description="One-paragraph summary for the hunt")
+    trust_score: int | None = Field(None, description="Overall trust score from 0 to 100")
     thumbnail_url: str | None = Field(None, description="Thumbnail URL for reel preview")
     caption: str | None = Field(None, description="Caption text for the shared reel")
     creator_handle: str | None = Field(None, description="Creator handle for the shared reel")

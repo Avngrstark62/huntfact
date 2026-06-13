@@ -204,10 +204,19 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
 }
 
 @Composable
-private fun TrustSummaryCard(trustScore: Int) {
-    val normalizedScore = trustScore.coerceIn(0, 100)
-    val trustColor = trustScoreColor(normalizedScore)
-    val trustBand = remember(normalizedScore) { trustBandForScore(normalizedScore) }
+private fun TrustSummaryCard(trustScore: Int?) {
+    val normalizedScore = trustScore?.coerceIn(0, 100)
+    val trustColor = if (normalizedScore != null) trustScoreColor(normalizedScore) else MaterialTheme.colorScheme.outline
+    val trustBand = remember(normalizedScore) {
+        if (normalizedScore != null) {
+            trustBandForScore(normalizedScore)
+        } else {
+            TrustBand(
+                title = "Processing",
+                description = "Trust score will appear when verification completes.",
+            )
+        }
+    }
     val cardShape = RoundedCornerShape(18.dp)
 
     Card(
@@ -232,7 +241,7 @@ private fun TrustSummaryCard(trustScore: Int) {
                 contentAlignment = androidx.compose.ui.Alignment.Center,
             ) {
                 Text(
-                    text = normalizedScore.toString(),
+                    text = normalizedScore?.toString() ?: "--",
                     style = MaterialTheme.typography.headlineSmall,
                     color = trustColor,
                 )
@@ -274,7 +283,7 @@ private fun HuntSummaryCard(summary: String?) {
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = summary?.takeIf { it.isNotBlank() } ?: "Summary will be available soon.",
+                text = summary?.takeIf { it.isNotBlank() } ?: "Summary will be available when processing completes.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 10,
