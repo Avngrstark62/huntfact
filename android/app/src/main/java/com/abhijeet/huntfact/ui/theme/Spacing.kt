@@ -8,4 +8,5 @@ object AppSpacing {
     val sm = 12.dp
     val md = 16.dp
     val lg = 24.dp
+    val xl = 32.dp
 }

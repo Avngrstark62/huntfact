@@ -5,6 +5,7 @@ import com.abhijeet.huntfact.network.HuntDto
 data class HuntItem(
     val id: Int,
     val videoLink: String,
+    val title: String?,
     val status: String,
     val result: String?,
     val thumbnailUrl: String?,
@@ -15,12 +16,15 @@ data class HuntItem(
     val createdAt: String?,
     val updatedAt: String?,
     val completedAt: String?,
+    val trustScore: Int?,
+    val summary: String?,
 )
 
 fun HuntDto.toHuntItem(): HuntItem {
     return HuntItem(
         id = id,
         videoLink = video_link,
+        title = title,
         status = status,
         result = result,
         thumbnailUrl = thumbnail_url,
@@ -31,5 +35,7 @@ fun HuntDto.toHuntItem(): HuntItem {
         createdAt = createdAt,
         updatedAt = updatedAt,
         completedAt = completedAt,
+        trustScore = trust_score?.coerceIn(0, 100),
+        summary = summary,
     )
 }

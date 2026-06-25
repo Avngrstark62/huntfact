@@ -30,7 +30,7 @@ def _normalize_queries(queries: List[str]) -> List[str]:
         seen_queries.add(cleaned_query)
         normalized_queries.append(cleaned_query)
 
-        if len(normalized_queries) == 5:
+        if len(normalized_queries) == 10:
             break
 
     return normalized_queries
@@ -40,32 +40,70 @@ async def _generate_web_queries(claims: List[str]) -> List[str]:
     claims_text = "\n".join([f"- {claim}" for claim in claims])
     prompt = f"""You are given a list of closely related factual claims that need web verification.
 
-Your task:
-- Produce the minimum number of search-engine queries needed to verify all claims.
-- Return at least 1 and at most 3 queries.
-- Queries should be practical Google-style searches likely to surface authoritative context pages.
-- Prefer concise keyword-focused phrasing.
-- Include key entities, dates, locations, and claim-specific terms when needed.
-- Avoid duplicate or near-duplicate queries.
-
 Claims:
 {claims_text}
+
+Task:
+Generate the minimum number of search-engine queries needed to retrieve sufficient evidence to verify all claims.
+
+Algorithm:
+1. Read all claims and identify their main entities and topics.
+2. Group related claims that can likely be verified using the same evidence.
+3. For each group, determine what type of source is most likely to contain authoritative evidence.
+4. Generate one search query for each group whenever possible.
+5. Include important entities, dates, locations, or technical terms only when they help retrieve more precise evidence.
+6. Design queries to retrieve evidence sources rather than general discussions.
+7. Avoid duplicate or highly overlapping queries.
+8. Stop once all claim groups are covered.
+
+Requirements:
+- Produce the minimum number of practical Google-style queries needed to cover all claims.
+- Keep queries concise and keyword-focused.
+- Return only the structured output.
 """
-
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a web-research assistant that writes high-quality search queries "
-                "to verify factual claims. Return only the structured output."
-            ),
-        },
-        {
-            "role": "user",
-            "content": prompt,
-        },
-    ]
-
+    {
+        "role": "system",
+        "content": (
+            "You are a web research assistant. "
+            "Your objective is to maximize evidence retrieval while minimizing redundant searches. "
+            "Follow the provided algorithm exactly. "
+            "Return only the requested structured output."
+        ),
+    },
+    {
+        "role": "user",
+        "content": prompt,
+    },
+]
+#     prompt = f"""You are given a list of closely related factual claims that need web verification.
+#
+# Your task:
+# - Produce the minimum number of search-engine queries needed to verify all claims.
+# - Return at least 1 and at most 3 queries.
+# - Queries should be practical Google-style searches likely to surface authoritative context pages.
+# - Prefer concise keyword-focused phrasing.
+# - Include key entities, dates, locations, and claim-specific terms when needed.
+# - Avoid duplicate or near-duplicate queries.
+#
+# Claims:
+# {claims_text}
+# """
+#
+#     messages = [
+#         {
+#             "role": "system",
+#             "content": (
+#                 "You are a web-research assistant that writes high-quality search queries "
+#                 "to verify factual claims. Return only the structured output."
+#             ),
+#         },
+#         {
+#             "role": "user",
+#             "content": prompt,
+#         },
+#     ]
+#
     result = await llm.call_with_schema(
         model=settings.llm.reasoning_model,
         messages=messages,
@@ -76,7 +114,7 @@ Claims:
     if normalized_queries:
         return normalized_queries
 
-    # Keep a safe fallback to preserve the 1..5 contract.
+    # Keep a safe fallback to preserve the 1..10 contract.
     return [claims[0]]
 
 

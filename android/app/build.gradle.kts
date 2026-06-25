@@ -19,7 +19,7 @@ android {
         ?: System.getenv("SUPABASE_ANON_KEY")
         ?: ""
     val backendBaseUrl = (project.findProperty("BACKEND_BASE_URL") as String?)
-        ?: "https://4eba-14-139-38-104.ngrok-free.app/"
+        ?: "https://247f-14-139-38-104.ngrok-free.app/"
 
     defaultConfig {
         applicationId = "com.abhijeet.huntfact"
@@ -70,6 +70,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation("io.coil-kt:coil-compose:2.7.0")
     
     // WorkManager for background jobs
     implementation("androidx.work:work-runtime-ktx:2.8.1")

@@ -14,11 +14,15 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
 
     app = Firecrawl(api_url=settings.firecrawl.api_url)
 
+    response = None
+
     try:
         response = app.scrape(cleaned_url, formats=["markdown"])
+        logger.info(f"Firecrawl scrape succeeded for URL '{cleaned_url}'")
     except Exception as e:
-        logger.error(f"Firecrawl scrape failed for URL '{cleaned_url}': {str(e)}", exc_info=True)
-        raise RuntimeError(f"Firecrawl scrape failed for URL '{cleaned_url}'") from e
+        logger.info(f"Firecrawl scrape failed for URL '{cleaned_url}'")
+        return ""
+        # raise RuntimeError(f"Firecrawl scrape failed for URL '{cleaned_url}'") from e
 
     markdown = ""
     if isinstance(response, dict):
