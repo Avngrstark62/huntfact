@@ -108,6 +108,7 @@ private const val DEFAULT_CLAIM_CONFIDENCE_PERCENT = 50
 
 @Composable
 private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
+    val huntStatus = normalizeHuntStatus(hunt.status)
     val allRows = remember(hunt.result) { parseRows(hunt.result) }
     val claimCountLabel = "${allRows.size} claims"
     val claimStats = remember(allRows) { computeResultClaimStats(allRows) }
@@ -130,12 +131,23 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            TrustSummaryCard(trustScore = hunt.trustScore)
+            TrustSummaryCard(
+                trustScore = hunt.trustScore,
+                huntStatus = huntStatus,
+            )
 
-            if (hunt.result.isNullOrBlank()) {
+            if (huntStatus == HuntStatus.PROCESSING) {
                 EmptyStateView(
                     title = "Result not ready",
                     subtitle = "This hunt is still processing. Please check again shortly.",
+                )
+                return@Column
+            }
+            if (huntStatus == HuntStatus.FAILED) {
+                EmptyStateView(
+                    title = "Hunt failed",
+                    subtitle = hunt.errorMessage?.takeIf { it.isNotBlank() }
+                        ?: "This hunt failed. Please retry.",
                 )
                 return@Column
             }
@@ -147,12 +159,15 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
                 item {
                     HuntSummaryCard(
                         summary = hunt.summary,
+                        huntStatus = huntStatus,
                     )
                 }
                 item {
                     ClaimStatsGrid(
                         falseClaims = claimStats.falseClaims,
+                        mostlyFalseClaims = claimStats.mostlyFalseClaims,
                         unverifiedClaims = claimStats.unverifiedClaims,
+                        mostlyTrueClaims = claimStats.mostlyTrueClaims,
                         trueClaims = claimStats.trueClaims,
                         totalClaims = claimStats.totalClaims,
                     )
@@ -204,16 +219,29 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
 }
 
 @Composable
-private fun TrustSummaryCard(trustScore: Int?) {
+private fun TrustSummaryCard(
+    trustScore: Int?,
+    huntStatus: HuntStatus,
+) {
     val normalizedScore = trustScore?.coerceIn(0, 100)
     val trustColor = if (normalizedScore != null) trustScoreColor(normalizedScore) else MaterialTheme.colorScheme.outline
-    val trustBand = remember(normalizedScore) {
-        if (normalizedScore != null) {
-            trustBandForScore(normalizedScore)
-        } else {
+    val trustBand = remember(normalizedScore, huntStatus) {
+        if (huntStatus == HuntStatus.PROCESSING) {
             TrustBand(
                 title = "Processing",
                 description = "Trust score will appear when verification completes.",
+            )
+        } else if (huntStatus == HuntStatus.FAILED) {
+            TrustBand(
+                title = "Hunt failed",
+                description = "No trust score is available for failed hunts.",
+            )
+        } else if (normalizedScore != null) {
+            trustBandForScore(normalizedScore)
+        } else {
+            TrustBand(
+                title = "Trust unavailable",
+                description = "This hunt has no trust score yet.",
             )
         }
     }
@@ -264,7 +292,10 @@ private fun TrustSummaryCard(trustScore: Int?) {
 }
 
 @Composable
-private fun HuntSummaryCard(summary: String?) {
+private fun HuntSummaryCard(
+    summary: String?,
+    huntStatus: HuntStatus,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -283,7 +314,7 @@ private fun HuntSummaryCard(summary: String?) {
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = summary?.takeIf { it.isNotBlank() } ?: "Summary will be available when processing completes.",
+                text = summary?.takeIf { it.isNotBlank() } ?: fallbackSummaryText(huntStatus),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 10,
@@ -296,7 +327,9 @@ private fun HuntSummaryCard(summary: String?) {
 @Composable
 private fun ClaimStatsGrid(
     falseClaims: Int,
+    mostlyFalseClaims: Int,
     unverifiedClaims: Int,
+    mostlyTrueClaims: Int,
     trueClaims: Int,
     totalClaims: Int,
 ) {
@@ -314,6 +347,20 @@ private fun ClaimStatsGrid(
                 value = unverifiedClaims,
                 label = "unverified",
                 color = Color(0xFFFFB300),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+            ClaimStatTile(
+                value = mostlyFalseClaims,
+                label = "mostly false",
+                color = Color(0xFFFF7043),
+                modifier = Modifier.weight(1f),
+            )
+            ClaimStatTile(
+                value = mostlyTrueClaims,
+                label = "mostly true",
+                color = Color(0xFF66BB6A),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -370,45 +417,38 @@ private fun ClaimStatTile(
 private data class TrustBand(val title: String, val description: String)
 private data class ResultClaimStats(
     val falseClaims: Int,
+    val mostlyFalseClaims: Int,
     val unverifiedClaims: Int,
+    val mostlyTrueClaims: Int,
     val trueClaims: Int,
     val totalClaims: Int,
 )
 
 private fun computeResultClaimStats(rows: List<ClaimRow>): ResultClaimStats {
     var falseCount = 0
+    var mostlyFalseCount = 0
     var unverifiedCount = 0
+    var mostlyTrueCount = 0
     var trueCount = 0
 
     rows.forEach { row ->
-        when (normalizeResultVerdict(row.verdict)) {
-            ResultVerdict.FALSE -> falseCount += 1
-            ResultVerdict.UNVERIFIED -> unverifiedCount += 1
-            ResultVerdict.TRUE -> trueCount += 1
+        when (row.verdict.ifBlank { VERDICT_UNVERIFIED }) {
+            VERDICT_FALSE -> falseCount += 1
+            VERDICT_MOSTLY_FALSE -> mostlyFalseCount += 1
+            VERDICT_UNVERIFIED -> unverifiedCount += 1
+            VERDICT_MOSTLY_TRUE -> mostlyTrueCount += 1
+            VERDICT_TRUE -> trueCount += 1
         }
     }
 
     return ResultClaimStats(
         falseClaims = falseCount,
+        mostlyFalseClaims = mostlyFalseCount,
         unverifiedClaims = unverifiedCount,
+        mostlyTrueClaims = mostlyTrueCount,
         trueClaims = trueCount,
         totalClaims = rows.size,
     )
-}
-
-private enum class ResultVerdict {
-    TRUE,
-    FALSE,
-    UNVERIFIED,
-}
-
-private fun normalizeResultVerdict(rawVerdict: String): ResultVerdict {
-    val normalized = rawVerdict.trim().lowercase()
-    return when {
-        "false" in normalized -> ResultVerdict.FALSE
-        normalized == "true" -> ResultVerdict.TRUE
-        else -> ResultVerdict.UNVERIFIED
-    }
 }
 
 private fun trustBandForScore(score: Int): TrustBand {
@@ -441,14 +481,9 @@ private fun ClaimRowCard(
     row: ClaimRow,
     onClick: () -> Unit,
 ) {
-    val verdict = normalizeResultVerdict(row.verdict)
-    val accentColor = verdictColor(verdict)
-    val iconRes = verdictIconRes(verdict)
-    val label = when (verdict) {
-        ResultVerdict.FALSE -> "false"
-        ResultVerdict.TRUE -> "true"
-        ResultVerdict.UNVERIFIED -> "unverified"
-    }
+    val label = row.verdict.ifBlank { VERDICT_UNVERIFIED }
+    val accentColor = verdictColor(label)
+    val iconRes = verdictIconRes(label)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -492,19 +527,23 @@ private fun ClaimRowCard(
     }
 }
 
-private fun verdictColor(verdict: ResultVerdict): Color {
+private fun verdictColor(verdict: String): Color {
     return when (verdict) {
-        ResultVerdict.FALSE -> Color(0xFFE53935)
-        ResultVerdict.UNVERIFIED -> Color(0xFFFFB300)
-        ResultVerdict.TRUE -> Color(0xFF2E7D32)
+        VERDICT_FALSE -> Color(0xFFE53935)
+        VERDICT_MOSTLY_FALSE -> Color(0xFFFF7043)
+        VERDICT_UNVERIFIED -> Color(0xFFFFB300)
+        VERDICT_MOSTLY_TRUE -> Color(0xFF66BB6A)
+        VERDICT_TRUE -> Color(0xFF2E7D32)
+        else -> Color(0xFF9E9E9E)
     }
 }
 
-private fun verdictIconRes(verdict: ResultVerdict): Int {
+private fun verdictIconRes(verdict: String): Int {
     return when (verdict) {
-        ResultVerdict.FALSE -> android.R.drawable.ic_delete
-        ResultVerdict.UNVERIFIED -> android.R.drawable.ic_dialog_alert
-        ResultVerdict.TRUE -> R.drawable.ic_verdict_true
+        VERDICT_FALSE, VERDICT_MOSTLY_FALSE -> android.R.drawable.ic_delete
+        VERDICT_UNVERIFIED -> android.R.drawable.ic_dialog_alert
+        VERDICT_MOSTLY_TRUE, VERDICT_TRUE -> R.drawable.ic_verdict_true
+        else -> android.R.drawable.ic_menu_help
     }
 }
 
@@ -550,7 +589,7 @@ private fun parseRows(raw: String?): List<ClaimRow> {
             if (claim.isBlank()) {
                 return@mapNotNull null
             }
-            val verdict = obj.get("verdict").safeAsString().ifBlank { "no verdict" }
+            val verdict = obj.get("verdict").safeAsString().ifBlank { VERDICT_UNVERIFIED }
             val confidencePercent = obj.get("confidence").safeAsIntOrNull()
                 ?: obj.get("confidence_percent").safeAsIntOrNull()
                 ?: DEFAULT_CLAIM_CONFIDENCE_PERCENT
@@ -574,7 +613,7 @@ private fun parseRows(raw: String?): List<ClaimRow> {
         listOf(
             ClaimRow(
                 claim = "Result",
-                verdict = "no verdict",
+                verdict = VERDICT_UNVERIFIED,
                 confidencePercent = DEFAULT_CLAIM_CONFIDENCE_PERCENT,
                 sources = emptyList(),
                 explanation = raw.trim(),
@@ -598,3 +637,33 @@ private fun com.google.gson.JsonElement?.safeAsIntOrNull(): Int? {
         }
     }.getOrNull()
 }
+
+private enum class HuntStatus {
+    PROCESSING,
+    COMPLETED,
+    FAILED,
+    OTHER,
+}
+
+private fun normalizeHuntStatus(status: String): HuntStatus {
+    return when (status.trim().lowercase()) {
+        "queued", "running", "processing", "pending" -> HuntStatus.PROCESSING
+        "completed" -> HuntStatus.COMPLETED
+        "failed" -> HuntStatus.FAILED
+        else -> HuntStatus.OTHER
+    }
+}
+
+private fun fallbackSummaryText(status: HuntStatus): String {
+    return when (status) {
+        HuntStatus.PROCESSING -> "Summary will be available when processing completes."
+        HuntStatus.FAILED -> "No summary is available for failed hunts."
+        HuntStatus.COMPLETED, HuntStatus.OTHER -> "Summary unavailable."
+    }
+}
+
+private const val VERDICT_TRUE = "true"
+private const val VERDICT_MOSTLY_TRUE = "mostly true"
+private const val VERDICT_UNVERIFIED = "unverified"
+private const val VERDICT_MOSTLY_FALSE = "mostly false"
+private const val VERDICT_FALSE = "false"

@@ -172,17 +172,21 @@ fun StatusChip(status: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun VerdictChip(verdict: String, modifier: Modifier = Modifier) {
-    val normalized = verdict.lowercase().trim()
+    val normalized = verdict.ifBlank { VERDICT_UNVERIFIED }
     val label = when (normalized) {
-        "true" -> "True"
-        "false" -> "False"
-        "partially true" -> "Partially True"
-        else -> "No Verdict"
+        VERDICT_TRUE -> "true"
+        VERDICT_MOSTLY_TRUE -> "mostly true"
+        VERDICT_UNVERIFIED -> "unverified"
+        VERDICT_MOSTLY_FALSE -> "mostly false"
+        VERDICT_FALSE -> "false"
+        else -> normalized
     }
     val colors = when (normalized) {
-        "true" -> Pair(Success.copy(alpha = 0.18f), Success)
-        "false" -> Pair(ErrorRed.copy(alpha = 0.16f), ErrorRed)
-        "partially true" -> Pair(Warning.copy(alpha = 0.22f), Warning)
+        VERDICT_TRUE -> Pair(Success.copy(alpha = 0.18f), Success)
+        VERDICT_MOSTLY_TRUE -> Pair(Color(0xFF66BB6A).copy(alpha = 0.2f), Color(0xFF66BB6A))
+        VERDICT_UNVERIFIED -> Pair(Warning.copy(alpha = 0.22f), Warning)
+        VERDICT_MOSTLY_FALSE -> Pair(Color(0xFFFF7043).copy(alpha = 0.2f), Color(0xFFFF7043))
+        VERDICT_FALSE -> Pair(ErrorRed.copy(alpha = 0.16f), ErrorRed)
         else -> Pair(Neutral.copy(alpha = 0.2f), Neutral)
     }
     SimpleChip(
@@ -282,3 +286,9 @@ fun KeyValueRow(
         )
     }
 }
+
+private const val VERDICT_TRUE = "true"
+private const val VERDICT_MOSTLY_TRUE = "mostly true"
+private const val VERDICT_UNVERIFIED = "unverified"
+private const val VERDICT_MOSTLY_FALSE = "mostly false"
+private const val VERDICT_FALSE = "false"

@@ -245,6 +245,7 @@ private fun HuntCard(
     onClick: () -> Unit,
 ) {
     val claimStats = remember(hunt.result) { calculateClaimStats(hunt.result) }
+    val normalizedStatus = normalizeHuntStatus(hunt.status)
     val cardHeight = 104.dp
     val thumbnailSize = 72.dp
 
@@ -276,13 +277,13 @@ private fun HuntCard(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    text = hunt.title?.takeIf { it.isNotBlank() } ?: "Processing...",
+                    text = hunt.title?.takeIf { it.isNotBlank() } ?: fallbackTitleForStatus(normalizedStatus),
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = claimStats.summaryLabel(),
+                    text = subtitleForHunt(hunt, normalizedStatus, claimStats),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -363,20 +364,33 @@ private fun TrustScoreBadge(
 private data class HuntClaimStats(
     val totalClaims: Int,
     val falseClaims: Int,
+    val mostlyFalseClaims: Int,
     val unverifiedClaims: Int,
+    val mostlyTrueClaims: Int,
+    val trueClaims: Int,
 )
 
 private fun HuntClaimStats.summaryLabel(): String {
     return when {
         falseClaims > 0 -> "$totalClaims claims . $falseClaims false"
+        mostlyFalseClaims > 0 -> "$totalClaims claims . $mostlyFalseClaims mostly false"
         unverifiedClaims > 0 -> "$totalClaims claims . $unverifiedClaims unverified"
-        else -> "$totalClaims claims . all accurate"
+        mostlyTrueClaims > 0 -> "$totalClaims claims . $mostlyTrueClaims mostly true"
+        trueClaims > 0 -> "$totalClaims claims . all true"
+        else -> "$totalClaims claims"
     }
 }
 
 private fun calculateClaimStats(rawResult: String?): HuntClaimStats {
     if (rawResult.isNullOrBlank()) {
-        return HuntClaimStats(totalClaims = 0, falseClaims = 0, unverifiedClaims = 0)
+        return HuntClaimStats(
+            totalClaims = 0,
+            falseClaims = 0,
+            mostlyFalseClaims = 0,
+            unverifiedClaims = 0,
+            mostlyTrueClaims = 0,
+            trueClaims = 0,
+        )
     }
 
     return runCatching {
@@ -385,48 +399,64 @@ private fun calculateClaimStats(rawResult: String?): HuntClaimStats {
             root.isJsonObject && root.asJsonObject.has("rows") -> root.asJsonObject.get("rows")
             root.isJsonArray -> root
             else -> null
-        } ?: return@runCatching HuntClaimStats(totalClaims = 0, falseClaims = 0, unverifiedClaims = 0)
+        } ?: return@runCatching HuntClaimStats(
+            totalClaims = 0,
+            falseClaims = 0,
+            mostlyFalseClaims = 0,
+            unverifiedClaims = 0,
+            mostlyTrueClaims = 0,
+            trueClaims = 0,
+        )
 
         if (!rowsElement.isJsonArray) {
-            return@runCatching HuntClaimStats(totalClaims = 0, falseClaims = 0, unverifiedClaims = 0)
+            return@runCatching HuntClaimStats(
+                totalClaims = 0,
+                falseClaims = 0,
+                mostlyFalseClaims = 0,
+                unverifiedClaims = 0,
+                mostlyTrueClaims = 0,
+                trueClaims = 0,
+            )
         }
 
         var total = 0
         var falseCount = 0
+        var mostlyFalseCount = 0
         var unverifiedCount = 0
+        var mostlyTrueCount = 0
+        var trueCount = 0
 
         rowsElement.asJsonArray.forEach { rowElement ->
             if (!rowElement.isJsonObject) return@forEach
             total += 1
-            val verdictRaw = rowElement.asJsonObject.get("verdict")?.safeAsString().orEmpty()
-            when (parseVerdictBucket(verdictRaw)) {
-                VerdictBucket.FALSE -> falseCount += 1
-                VerdictBucket.UNVERIFIED -> unverifiedCount += 1
-                VerdictBucket.TRUE -> Unit
+            val verdict = rowElement.asJsonObject.get("verdict")?.safeAsString().orEmpty()
+            when (verdict.ifBlank { VERDICT_UNVERIFIED }) {
+                VERDICT_FALSE -> falseCount += 1
+                VERDICT_MOSTLY_FALSE -> mostlyFalseCount += 1
+                VERDICT_UNVERIFIED -> unverifiedCount += 1
+                VERDICT_MOSTLY_TRUE -> mostlyTrueCount += 1
+                VERDICT_TRUE -> trueCount += 1
             }
         }
 
         HuntClaimStats(
             totalClaims = total,
             falseClaims = falseCount,
+            mostlyFalseClaims = mostlyFalseCount,
             unverifiedClaims = unverifiedCount,
+            mostlyTrueClaims = mostlyTrueCount,
+            trueClaims = trueCount,
         )
-    }.getOrDefault(HuntClaimStats(totalClaims = 0, falseClaims = 0, unverifiedClaims = 0))
-}
-
-private enum class VerdictBucket {
-    TRUE,
-    FALSE,
-    UNVERIFIED,
-}
-
-private fun parseVerdictBucket(verdict: String): VerdictBucket {
-    val normalized = verdict.trim().lowercase()
-    return when {
-        "false" in normalized -> VerdictBucket.FALSE
-        normalized == "true" -> VerdictBucket.TRUE
-        else -> VerdictBucket.UNVERIFIED
-    }
+    }.getOrDefault(
+        HuntClaimStats(
+            totalClaims = 0,
+            falseClaims = 0,
+            mostlyFalseClaims = 0,
+            unverifiedClaims = 0,
+            mostlyTrueClaims = 0,
+            trueClaims = 0,
+        )
+    )
 }
 
 private fun trustScoreColor(score: Int): Color {
@@ -440,3 +470,48 @@ private fun trustScoreColor(score: Int): Color {
 private fun com.google.gson.JsonElement?.safeAsString(): String {
     return runCatching { this?.asString?.trim().orEmpty() }.getOrDefault("")
 }
+
+private enum class HuntStatus {
+    PROCESSING,
+    COMPLETED,
+    FAILED,
+    OTHER,
+}
+
+private fun normalizeHuntStatus(status: String): HuntStatus {
+    return when (status.trim().lowercase()) {
+        "queued", "running", "processing", "pending" -> HuntStatus.PROCESSING
+        "completed" -> HuntStatus.COMPLETED
+        "failed" -> HuntStatus.FAILED
+        else -> HuntStatus.OTHER
+    }
+}
+
+private fun fallbackTitleForStatus(status: HuntStatus): String {
+    return when (status) {
+        HuntStatus.PROCESSING -> "Processing..."
+        HuntStatus.FAILED -> "Hunt failed"
+        HuntStatus.COMPLETED, HuntStatus.OTHER -> "Untitled hunt"
+    }
+}
+
+private fun subtitleForHunt(
+    hunt: HuntItem,
+    status: HuntStatus,
+    claimStats: HuntClaimStats,
+): String {
+    return when (status) {
+        HuntStatus.PROCESSING -> "Processing"
+        HuntStatus.FAILED -> hunt.errorMessage?.takeIf { it.isNotBlank() } ?: "Failed"
+        HuntStatus.COMPLETED -> {
+            if (claimStats.totalClaims == 0) "No claims found" else claimStats.summaryLabel()
+        }
+        HuntStatus.OTHER -> hunt.status.ifBlank { "Unknown" }
+    }
+}
+
+private const val VERDICT_TRUE = "true"
+private const val VERDICT_MOSTLY_TRUE = "mostly true"
+private const val VERDICT_UNVERIFIED = "unverified"
+private const val VERDICT_MOSTLY_FALSE = "mostly false"
+private const val VERDICT_FALSE = "false"

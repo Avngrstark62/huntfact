@@ -109,13 +109,8 @@ private fun ClaimDetailScreen(
     sources: List<String>,
     onBack: () -> Unit,
 ) {
-    val verdict = normalizeDetailVerdict(verdictRaw)
-    val verdictColor = detailVerdictColor(verdict)
-    val verdictLabel = when (verdict) {
-        DetailVerdict.TRUE -> "true"
-        DetailVerdict.FALSE -> "false"
-        DetailVerdict.UNVERIFIED -> "unverified"
-    }
+    val verdictLabel = verdictRaw.ifBlank { VERDICT_UNVERIFIED }
+    val verdictColor = detailVerdictColor(verdictLabel)
 
     Scaffold { innerPadding ->
         LazyColumn(
@@ -304,25 +299,19 @@ private fun SourceLinkCard(source: String) {
     }
 }
 
-private enum class DetailVerdict {
-    TRUE,
-    FALSE,
-    UNVERIFIED,
-}
-
-private fun normalizeDetailVerdict(rawVerdict: String): DetailVerdict {
-    val normalized = rawVerdict.trim().lowercase()
-    return when {
-        "false" in normalized -> DetailVerdict.FALSE
-        normalized == "true" -> DetailVerdict.TRUE
-        else -> DetailVerdict.UNVERIFIED
-    }
-}
-
-private fun detailVerdictColor(verdict: DetailVerdict): Color {
+private fun detailVerdictColor(verdict: String): Color {
     return when (verdict) {
-        DetailVerdict.FALSE -> Color(0xFFE53935)
-        DetailVerdict.UNVERIFIED -> Color(0xFFFFB300)
-        DetailVerdict.TRUE -> Color(0xFF2E7D32)
+        VERDICT_FALSE -> Color(0xFFE53935)
+        VERDICT_MOSTLY_FALSE -> Color(0xFFFF7043)
+        VERDICT_UNVERIFIED -> Color(0xFFFFB300)
+        VERDICT_MOSTLY_TRUE -> Color(0xFF66BB6A)
+        VERDICT_TRUE -> Color(0xFF2E7D32)
+        else -> Color(0xFF9E9E9E)
     }
 }
+
+private const val VERDICT_TRUE = "true"
+private const val VERDICT_MOSTLY_TRUE = "mostly true"
+private const val VERDICT_UNVERIFIED = "unverified"
+private const val VERDICT_MOSTLY_FALSE = "mostly false"
+private const val VERDICT_FALSE = "false"

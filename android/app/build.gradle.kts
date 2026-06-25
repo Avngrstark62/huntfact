@@ -19,7 +19,7 @@ android {
         ?: System.getenv("SUPABASE_ANON_KEY")
         ?: ""
     val backendBaseUrl = (project.findProperty("BACKEND_BASE_URL") as String?)
-        ?: "https://247f-14-139-38-104.ngrok-free.app/"
+        ?: "https://api.huntfact.com/"
 
     defaultConfig {
         applicationId = "com.abhijeet.huntfact"
