@@ -62,6 +62,8 @@ import com.abhijeet.huntfact.ui.resources.ResourcesViewModel
 import com.abhijeet.huntfact.utils.AuthSessionManager
 import com.abhijeet.huntfact.utils.FcmTokenManager
 import com.abhijeet.huntfact.utils.SupabaseClientProvider
+import com.google.firebase.Firebase
+import com.google.firebase.crashlytics.crashlytics
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -78,20 +80,26 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
+        Firebase.crashlytics.log("MainActivity.notificationPermissionLauncher: result isGranted=$isGranted")
         if (isGranted) {
             initializeFcm()
+        } else {
+            Firebase.crashlytics.recordException(Exception("Notification permission denied in MainActivity"))
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Firebase.crashlytics.log("MainActivity.onCreate: started")
         enableEdgeToEdge()
         SupabaseClientProvider.handleAuthDeeplink(intent) {
+            Firebase.crashlytics.log("MainActivity.onCreate: auth deeplink handled, refreshing auth state")
             lifecycleScope.launch {
                 AuthSessionManager.refreshAuthState(applicationContext)
             }
         }
         lifecycleScope.launch {
+            Firebase.crashlytics.log("MainActivity.onCreate: refreshing auth state on launch")
             AuthSessionManager.refreshAuthState(applicationContext)
         }
         
@@ -106,11 +114,14 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        Firebase.crashlytics.log("MainActivity.onCreate: completed")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        Firebase.crashlytics.log("MainActivity.onNewIntent: received new intent")
         SupabaseClientProvider.handleAuthDeeplink(intent) {
+            Firebase.crashlytics.log("MainActivity.onNewIntent: auth deeplink handled, refreshing state")
             lifecycleScope.launch {
                 huntsViewModel.refreshAuthState()
                 profileViewModel.refreshAuthState()
@@ -119,27 +130,36 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestNotificationPermission() {
+        Firebase.crashlytics.log("MainActivity.requestNotificationPermission: started")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             when {
                 ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.POST_NOTIFICATIONS
                 ) == PackageManager.PERMISSION_GRANTED -> {
+                    Firebase.crashlytics.log("MainActivity.requestNotificationPermission: permission already granted")
                     initializeFcm()
                 }
                 else -> {
+                    Firebase.crashlytics.log("MainActivity.requestNotificationPermission: requesting runtime permission")
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
         } else {
+            Firebase.crashlytics.log("MainActivity.requestNotificationPermission: pre-Tiramisu, skipping runtime request")
             initializeFcm()
         }
+        Firebase.crashlytics.log("MainActivity.requestNotificationPermission: completed")
     }
 
     private fun initializeFcm() {
+        Firebase.crashlytics.log("MainActivity.initializeFcm: started")
         lifecycleScope.launch {
+            Firebase.crashlytics.log("MainActivity.initializeFcm: fetching FCM token")
             val token = FcmTokenManager.getFcmToken()
+            Firebase.crashlytics.log("MainActivity.initializeFcm: saving FCM token")
             FcmTokenManager.saveToken(applicationContext, token)
+            Firebase.crashlytics.log("MainActivity.initializeFcm: completed")
         }
     }
 }

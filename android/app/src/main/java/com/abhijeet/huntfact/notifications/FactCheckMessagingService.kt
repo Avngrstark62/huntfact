@@ -13,6 +13,8 @@ import com.abhijeet.huntfact.ResultActivity
 import com.abhijeet.huntfact.hunts.HuntRepository
 import com.abhijeet.huntfact.hunts.toHuntItem
 import com.abhijeet.huntfact.network.RetrofitClient
+import com.google.firebase.Firebase
+import com.google.firebase.crashlytics.crashlytics
 import com.abhijeet.huntfact.utils.FcmTokenManager
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -23,37 +25,49 @@ import kotlinx.coroutines.launch
 class FactCheckMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
+        Firebase.crashlytics.log("FactCheckMessagingService.onMessageReceived: started")
         Log.d(TAG, "Message received from: ${remoteMessage.from}")
 
         val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "Fact check ready"
         val body = remoteMessage.notification?.body ?: remoteMessage.data["body"] ?: "Your reel has been fact-checked."
         val huntId = remoteMessage.data["hunt_id"]?.toIntOrNull()
+        Firebase.crashlytics.log("FactCheckMessagingService.onMessageReceived: parsed huntId=${huntId ?: -1}")
 
         if (huntId == null) {
             Log.e(TAG, "Missing hunt_id in push payload")
+            Firebase.crashlytics.log("FactCheckMessagingService.onMessageReceived: missing hunt_id, returning")
+            Firebase.crashlytics.recordException(Exception("Push payload missing hunt_id"))
             return
         }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                Firebase.crashlytics.log("FactCheckMessagingService.prefetch: requesting huntId=$huntId")
                 val hunt = RetrofitClient.getApiService(context = applicationContext).getHunt(huntId).toHuntItem()
                 HuntRepository(applicationContext).upsertLocal(hunt)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to prefetch hunt result: ${e.message}", e)
+                Firebase.crashlytics.log("FactCheckMessagingService.prefetch: completed huntId=$huntId")
+            } catch (exception: Exception) {
+                Log.e(TAG, "Failed to prefetch hunt result: ${exception.message}", exception)
+                Firebase.crashlytics.log("FactCheckMessagingService.prefetch: failed huntId=$huntId")
+                Firebase.crashlytics.recordException(exception)
             }
         }
 
         showNotification(title, body, huntId)
+        Firebase.crashlytics.log("FactCheckMessagingService.onMessageReceived: completed")
     }
 
     override fun onNewToken(token: String) {
         Log.d(TAG, "New FCM token: $token")
+        Firebase.crashlytics.log("FactCheckMessagingService.onNewToken: received new token")
         saveFcmToken(token)
     }
 
     private fun saveFcmToken(token: String) {
+        Firebase.crashlytics.log("FactCheckMessagingService.saveFcmToken: saving token")
         FcmTokenManager.saveToken(this, token)
         Log.d(TAG, "FCM token saved: $token")
+        Firebase.crashlytics.log("FactCheckMessagingService.saveFcmToken: completed")
     }
 
     private fun showNotification(
@@ -61,6 +75,7 @@ class FactCheckMessagingService : FirebaseMessagingService() {
         body: String,
         huntId: Int
     ) {
+        Firebase.crashlytics.log("FactCheckMessagingService.showNotification: started huntId=$huntId")
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = CHANNEL_ID
 
@@ -95,6 +110,7 @@ class FactCheckMessagingService : FirebaseMessagingService() {
             .build()
 
         notificationManager.notify(huntId, notification)
+        Firebase.crashlytics.log("FactCheckMessagingService.showNotification: notification posted huntId=$huntId")
     }
 
     companion object {

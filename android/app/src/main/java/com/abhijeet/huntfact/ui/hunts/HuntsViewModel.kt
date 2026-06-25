@@ -8,6 +8,8 @@ import com.abhijeet.huntfact.hunts.HuntItem
 import com.abhijeet.huntfact.hunts.HuntRepository
 import com.abhijeet.huntfact.utils.AuthSessionManager
 import com.abhijeet.huntfact.utils.SupabaseClientProvider
+import com.google.firebase.Firebase
+import com.google.firebase.crashlytics.crashlytics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,14 +39,17 @@ class HuntsViewModel(
     }
 
     fun refreshAuthState() {
+        Firebase.crashlytics.log("HuntsViewModel.refreshAuthState: started")
         viewModelScope.launch {
             AuthSessionManager.refreshAuthState(appContext)
+            Firebase.crashlytics.log("HuntsViewModel.refreshAuthState: completed")
         }
     }
 
     private fun observeAuthState() {
         viewModelScope.launch {
             AuthSessionManager.isAuthenticated.collectLatest { isAuthenticated ->
+                Firebase.crashlytics.log("HuntsViewModel.observeAuthState: authState=$isAuthenticated")
                 _uiState.update { current ->
                     current.copy(
                         isAuthenticated = isAuthenticated,
@@ -52,6 +57,7 @@ class HuntsViewModel(
                     )
                 }
                 if (isAuthenticated) {
+                    Firebase.crashlytics.log("HuntsViewModel.observeAuthState: authenticated, refreshing hunts")
                     refreshHunts()
                 }
             }
@@ -59,21 +65,30 @@ class HuntsViewModel(
     }
 
     fun onResume() {
+        Firebase.crashlytics.log("HuntsViewModel.onResume: started")
         if (_uiState.value.isAuthenticated) {
+            Firebase.crashlytics.log("HuntsViewModel.onResume: authenticated, running silent refresh")
             refreshHunts(silent = true)
         }
     }
 
     fun refreshHunts(silent: Boolean = false) {
+        Firebase.crashlytics.log("HuntsViewModel.refreshHunts: started silent=$silent")
         if (!_uiState.value.isAuthenticated || _uiState.value.isRefreshing) {
+            Firebase.crashlytics.log("HuntsViewModel.refreshHunts: skipped due to auth/refresh guard")
             return
         }
         viewModelScope.launch {
             if (!silent) {
+                Firebase.crashlytics.log("HuntsViewModel.refreshHunts: setting loading state")
                 _uiState.update { it.copy(isRefreshing = true, message = null) }
             }
-            runCatching { repository.syncHunts() }
+            runCatching {
+                Firebase.crashlytics.log("HuntsViewModel.refreshHunts: syncing hunts from repository")
+                repository.syncHunts()
+            }
                 .onSuccess { hunts ->
+                    Firebase.crashlytics.log("HuntsViewModel.refreshHunts: success huntCount=${hunts.size}")
                     _uiState.update {
                         it.copy(
                             hunts = hunts,
@@ -82,7 +97,9 @@ class HuntsViewModel(
                         )
                     }
                 }
-                .onFailure {
+                .onFailure { exception ->
+                    Firebase.crashlytics.log("HuntsViewModel.refreshHunts: failed to sync hunts")
+                    Firebase.crashlytics.recordException(exception)
                     _uiState.update {
                         it.copy(
                             isRefreshing = false,
@@ -94,20 +111,29 @@ class HuntsViewModel(
     }
 
     fun signInWithGoogle() {
+        Firebase.crashlytics.log("HuntsViewModel.signInWithGoogle: started")
         viewModelScope.launch {
             runCatching { SupabaseClientProvider.signInWithGoogle() }
                 .onSuccess {
+                    Firebase.crashlytics.log("HuntsViewModel.signInWithGoogle: sign-in flow started")
                     _uiState.update { it.copy(message = "Google sign-in started.") }
                 }
-                .onFailure {
+                .onFailure { exception ->
+                    Firebase.crashlytics.log("HuntsViewModel.signInWithGoogle: sign-in flow failed")
+                    Firebase.crashlytics.recordException(exception)
                     _uiState.update { it.copy(message = "Sign-in failed. Please try again.") }
                 }
         }
     }
 
     fun signOut() {
+        Firebase.crashlytics.log("HuntsViewModel.signOut: started")
         viewModelScope.launch {
             val signedOut = AuthSessionManager.signOut(appContext)
+            if (!signedOut) {
+                Firebase.crashlytics.log("HuntsViewModel.signOut: sign-out failed")
+                Firebase.crashlytics.recordException(Exception("HuntsViewModel signOut returned false"))
+            }
             _uiState.update {
                 it.copy(
                     hunts = emptyList(),
@@ -118,6 +144,7 @@ class HuntsViewModel(
     }
 
     fun clearMessage() {
+        Firebase.crashlytics.log("HuntsViewModel.clearMessage: clearing UI message")
         _uiState.update { it.copy(message = null) }
     }
 

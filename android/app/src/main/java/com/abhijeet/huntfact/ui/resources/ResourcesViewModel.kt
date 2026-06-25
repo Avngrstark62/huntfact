@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.abhijeet.huntfact.resources.ResourceSummary
 import com.abhijeet.huntfact.resources.ResourcesRepository
 import com.abhijeet.huntfact.resources.StubResourcesRepository
+import com.google.firebase.Firebase
+import com.google.firebase.crashlytics.crashlytics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,9 +31,12 @@ class ResourcesViewModel(
     }
 
     private fun loadSummary() {
+        Firebase.crashlytics.log("ResourcesViewModel.loadSummary: started")
         viewModelScope.launch {
+            Firebase.crashlytics.log("ResourcesViewModel.loadSummary: requesting resource summary")
             val summary = repository.getSummary()
             _uiState.update { it.copy(isLoading = false, summary = summary) }
+            Firebase.crashlytics.log("ResourcesViewModel.loadSummary: completed")
         }
     }
 

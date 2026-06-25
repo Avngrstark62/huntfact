@@ -42,15 +42,20 @@ import com.abhijeet.huntfact.ui.components.EmptyStateView
 import com.abhijeet.huntfact.ui.components.SectionTitle
 import com.abhijeet.huntfact.ui.theme.AndroidTheme
 import com.abhijeet.huntfact.ui.theme.AppSpacing
+import com.google.firebase.Firebase
+import com.google.firebase.crashlytics.crashlytics
 import com.google.gson.JsonParser
 import kotlinx.coroutines.launch
 
 class ResultActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Firebase.crashlytics.log("ResultActivity.onCreate: started")
 
         val huntId = intent.getIntExtra(EXTRA_HUNT_ID, -1)
         if (huntId <= 0) {
+            Firebase.crashlytics.log("ResultActivity.onCreate: missing or invalid huntId=$huntId")
+            Firebase.crashlytics.recordException(Exception("ResultActivity received invalid huntId"))
             setContent {
                 AndroidTheme {
                     EmptyResultScreen(
@@ -59,18 +64,25 @@ class ResultActivity : ComponentActivity() {
                     )
                 }
             }
+            Firebase.crashlytics.log("ResultActivity.onCreate: returning due to invalid hunt ID")
             return
         }
 
+        Firebase.crashlytics.log("ResultActivity.onCreate: loading huntId=$huntId")
         val repository = HuntRepository(applicationContext)
         lifecycleScope.launch {
             val hunt = try {
+                Firebase.crashlytics.log("ResultActivity.onCreate: fetching hunt from API for huntId=$huntId")
                 repository.fetchHunt(huntId)
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
+                Firebase.crashlytics.log("ResultActivity.onCreate: API fetch failed for huntId=$huntId, trying cache")
+                Firebase.crashlytics.recordException(exception)
                 repository.getCachedHunts().firstOrNull { it.id == huntId }
             }
 
             if (hunt == null) {
+                Firebase.crashlytics.log("ResultActivity.onCreate: hunt not found for huntId=$huntId")
+                Firebase.crashlytics.recordException(Exception("Hunt not found in API and cache for huntId=$huntId"))
                 setContent {
                     AndroidTheme {
                         EmptyResultScreen(
@@ -79,14 +91,17 @@ class ResultActivity : ComponentActivity() {
                         )
                     }
                 }
+                Firebase.crashlytics.log("ResultActivity.onCreate: returning due to missing hunt")
                 return@launch
             }
 
+            Firebase.crashlytics.log("ResultActivity.onCreate: rendering result screen for huntId=${hunt.id}")
             setContent {
                 AndroidTheme {
                     ResultScreen(hunt = hunt)
                 }
             }
+            Firebase.crashlytics.log("ResultActivity.onCreate: completed")
         }
     }
 
@@ -564,11 +579,14 @@ private fun EmptyResultScreen(title: String, subtitle: String) {
 }
 
 private fun parseRows(raw: String?): List<ClaimRow> {
+    Firebase.crashlytics.log("ResultActivity.parseRows: started")
     if (raw.isNullOrBlank()) {
+        Firebase.crashlytics.log("ResultActivity.parseRows: empty input, returning empty rows")
         return emptyList()
     }
 
     return runCatching {
+        Firebase.crashlytics.log("ResultActivity.parseRows: parsing JSON payload")
         val root = JsonParser.parseString(raw)
         val rowsElement = when {
             root.isJsonObject && root.asJsonObject.has("rows") -> root.asJsonObject.get("rows")
@@ -610,6 +628,8 @@ private fun parseRows(raw: String?): List<ClaimRow> {
             )
         }
     }.getOrElse {
+        Firebase.crashlytics.log("ResultActivity.parseRows: parse failed, falling back to plain text row")
+        Firebase.crashlytics.recordException(it)
         listOf(
             ClaimRow(
                 claim = "Result",

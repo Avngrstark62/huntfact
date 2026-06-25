@@ -37,10 +37,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.abhijeet.huntfact.ui.theme.AndroidTheme
 import com.abhijeet.huntfact.ui.theme.AppSpacing
+import com.google.firebase.Firebase
+import com.google.firebase.crashlytics.crashlytics
 
 class ClaimDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Firebase.crashlytics.log("ClaimDetailActivity.onCreate: started")
 
         val claimIndex = intent.getIntExtra(EXTRA_CLAIM_INDEX, 1)
         val totalClaims = intent.getIntExtra(EXTRA_TOTAL_CLAIMS, 1)
@@ -49,6 +52,9 @@ class ClaimDetailActivity : ComponentActivity() {
         val confidence = intent.getIntExtra(EXTRA_CONFIDENCE_PERCENT, 0)
         val explanation = intent.getStringExtra(EXTRA_EXPLANATION).orEmpty()
         val sources = intent.getStringArrayListExtra(EXTRA_SOURCES).orEmpty()
+        Firebase.crashlytics.log(
+            "ClaimDetailActivity.onCreate: rendering claimIndex=$claimIndex totalClaims=$totalClaims sourceCount=${sources.size}"
+        )
 
         setContent {
             AndroidTheme {
@@ -64,6 +70,7 @@ class ClaimDetailActivity : ComponentActivity() {
                 )
             }
         }
+        Firebase.crashlytics.log("ClaimDetailActivity.onCreate: completed")
     }
 
     companion object {
@@ -85,6 +92,9 @@ class ClaimDetailActivity : ComponentActivity() {
             claimIndex: Int,
             totalClaims: Int,
         ): Intent {
+            Firebase.crashlytics.log(
+                "ClaimDetailActivity.createIntent: preparing intent claimIndex=$claimIndex totalClaims=$totalClaims"
+            )
             return Intent(context, ClaimDetailActivity::class.java).apply {
                 putExtra(EXTRA_CLAIM_INDEX, claimIndex)
                 putExtra(EXTRA_TOTAL_CLAIMS, totalClaims)
