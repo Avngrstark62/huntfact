@@ -104,7 +104,7 @@ private data class ClaimRow(
 )
 
 private val TrustSummaryCardHeight = 124.dp
-private const val DEFAULT_CLAIM_CONFIDENCE_PERCENT = 78
+private const val DEFAULT_CLAIM_CONFIDENCE_PERCENT = 50
 
 @Composable
 private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
@@ -551,6 +551,9 @@ private fun parseRows(raw: String?): List<ClaimRow> {
                 return@mapNotNull null
             }
             val verdict = obj.get("verdict").safeAsString().ifBlank { "no verdict" }
+            val confidencePercent = obj.get("confidence").safeAsIntOrNull()
+                ?: obj.get("confidence_percent").safeAsIntOrNull()
+                ?: DEFAULT_CLAIM_CONFIDENCE_PERCENT
             val explanation = obj.get("explanation").safeAsString()
             val sources = obj.get("sources")
                 ?.takeIf { it.isJsonArray }
@@ -562,7 +565,7 @@ private fun parseRows(raw: String?): List<ClaimRow> {
             ClaimRow(
                 claim = claim,
                 verdict = verdict,
-                confidencePercent = DEFAULT_CLAIM_CONFIDENCE_PERCENT,
+                confidencePercent = confidencePercent.coerceIn(0, 100),
                 sources = sources,
                 explanation = explanation.ifBlank { "No explanation provided." },
             )
@@ -582,4 +585,16 @@ private fun parseRows(raw: String?): List<ClaimRow> {
 
 private fun com.google.gson.JsonElement?.safeAsString(): String {
     return runCatching { this?.asString?.trim().orEmpty() }.getOrDefault("")
+}
+
+private fun com.google.gson.JsonElement?.safeAsIntOrNull(): Int? {
+    return runCatching {
+        when {
+            this == null -> null
+            this.isJsonNull -> null
+            this.isJsonPrimitive && this.asJsonPrimitive.isNumber -> this.asInt
+            this.isJsonPrimitive && this.asJsonPrimitive.isString -> this.asString.trim().toInt()
+            else -> null
+        }
+    }.getOrNull()
 }

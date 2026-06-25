@@ -79,7 +79,7 @@ def _normalize_selected_indices(selected_indices: List[int], total_candidates: i
         seen.add(idx)
         normalized.append(idx)
 
-        if len(normalized) == 5:
+        if len(normalized) == 10:
             break
 
     return normalized
@@ -91,7 +91,37 @@ async def _select_urls_with_llm(
     claims_text = "\n".join([f"- {claim}" for claim in claims])
     candidates_text = _format_candidates_for_llm(candidates)
 
-    prompt = f"""You are selecting web sources for fact verification.
+#     prompt = f"""You are selecting web sources for fact verification.
+#
+# Claims to verify:
+# {claims_text}
+#
+# Candidate URLs:
+# {candidates_text}
+#
+# Task:
+# - Select URLs that are useful to verify the claims.
+# - Evaluate all candidate URLs as one combined pool.
+# - You may select zero URLs if none are useful.
+# - If you select URLs, select at most 5.
+# - Return only the selected candidate indices.
+# """
+#
+#     messages = [
+#         {
+#             "role": "system",
+#             "content": (
+#                 "You are a fact-checking research assistant. "
+#                 "Select only URLs that are relevant and credible for claim verification."
+#             ),
+#         },
+#         {
+#             "role": "user",
+#             "content": prompt,
+#         },
+#     ]
+#
+    prompt = f"""You are selecting web sources for factual claim verification.
 
 Claims to verify:
 {claims_text}
@@ -100,27 +130,43 @@ Candidate URLs:
 {candidates_text}
 
 Task:
-- Select URLs that are useful to verify the claims.
-- Evaluate all candidate URLs as one combined pool.
-- You may select zero URLs if none are useful.
-- If you select URLs, select at most 5.
+Select the minimum set of URLs that collectively provides sufficient evidence to verify all claims.
+
+Algorithm:
+1. Treat all candidate URLs as one combined pool.
+2. Initially consider every claim uncovered.
+3. For each URL, estimate:
+   - which claims it provides direct evidence for,
+   - how complete that evidence is,
+   - and how authoritative and trustworthy the source appears.
+4. Select the URL that contributes the greatest amount of useful evidence for currently uncovered claims.
+5. Mark sufficiently covered claims as covered.
+6. Repeat until every claim has sufficient evidence or no remaining URL provides meaningful additional evidence.
+7. If multiple URLs provide substantially the same evidence, keep only the one with the stronger evidence and higher source authority.
+8. Select lower-authority sources only when they contribute meaningful evidence that is not available from stronger sources.
+
+Requirements:
+- Select only URLs that materially improve the available evidence.
+- Select zero URLs if none are useful.
+- Do not select redundant URLs.
 - Return only the selected candidate indices.
 """
 
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a fact-checking research assistant. "
-                "Select only URLs that are relevant and credible for claim verification."
-            ),
-        },
-        {
-            "role": "user",
-            "content": prompt,
-        },
-    ]
-
+    {
+        "role": "system",
+        "content": (
+            "You are a fact-checking research assistant. "
+            "Your objective is to maximize the quality and completeness of the evidence available to a downstream verifier while minimizing redundant sources. "
+            "Follow the provided algorithm exactly. "
+            "Return only the requested structured output."
+        ),
+    },
+    {
+        "role": "user",
+        "content": prompt,
+    },
+]
     result = await llm.call_with_schema(
         model=settings.llm.reasoning_model,
         messages=messages,
@@ -188,7 +234,7 @@ async def build_web_verification_context(
         try:
             markdown = fetch_markdown_with_firecrawl(url)
         except Exception as e:
-            logger.error(f"Failed to scrape URL '{url}' with Firecrawl: {str(e)}", exc_info=True)
+            # logger.error(f"Failed to scrape URL '{url}' with Firecrawl: {str(e)}", exc_info=True)
             continue
 
         scraped_sources.append(
