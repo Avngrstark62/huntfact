@@ -26,7 +26,11 @@ object RetrofitClient {
                     if (!token.isNullOrBlank()) {
                         requestBuilder.addHeader("Authorization", "Bearer $token")
                     }
-                    chain.proceed(requestBuilder.build())
+                    val response = chain.proceed(requestBuilder.build())
+                    if (response.code == 401 || response.code == 403) {
+                        AuthSessionManager.invalidateLocalSession(appContext)
+                    }
+                    response
                 }
                 .build()
 

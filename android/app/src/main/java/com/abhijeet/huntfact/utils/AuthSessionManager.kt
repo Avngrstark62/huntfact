@@ -40,6 +40,11 @@ object AuthSessionManager {
             .apply()
     }
 
+    fun invalidateLocalSession(context: Context? = null) {
+        writeCachedToken(context, null)
+        _isAuthenticated.value = false
+    }
+
     fun getAccessToken(context: Context? = null): String? {
         val liveToken = try {
             SupabaseClientProvider.client.auth.currentSessionOrNull()?.accessToken
@@ -66,8 +71,7 @@ object AuthSessionManager {
     suspend fun signOut(context: Context? = null): Boolean {
         return try {
             SupabaseClientProvider.client.auth.signOut()
-            writeCachedToken(context, null)
-            _isAuthenticated.value = false
+            invalidateLocalSession(context)
             true
         } catch (_: Exception) {
             false
