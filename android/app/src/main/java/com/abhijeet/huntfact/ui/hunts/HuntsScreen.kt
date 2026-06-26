@@ -29,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,6 +62,7 @@ fun HuntsScreen(
     onRefresh: () -> Unit,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
+    onExportDebugLogs: () -> Unit = {},
     onOpenHunt: (HuntItem) -> Unit,
     showSectionTitle: Boolean = true,
     showSummary: Boolean = true,
@@ -131,33 +133,42 @@ fun HuntsScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs),
-                    modifier = Modifier.padding(AppSpacing.xs),
-                ) {
-                Button(
-                    onClick = onRefresh,
-                    modifier = Modifier.weight(1f),
-                    enabled = !uiState.isRefreshing,
-                    shape = RoundedCornerShape(999.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                ) {
-                    Text(if (uiState.isRefreshing) "Refreshing..." else "Refresh hunts")
-                }
-                    Button(
-                        onClick = onSignOut,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(999.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                        ),
+                Column(modifier = Modifier.padding(AppSpacing.xs)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.xs),
                     ) {
-                    Text("Sign out")
-                }
+                        Button(
+                            onClick = onRefresh,
+                            modifier = Modifier.weight(1f),
+                            enabled = !uiState.isRefreshing,
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            Text(if (uiState.isRefreshing) "Refreshing..." else "Refresh hunts")
+                        }
+                        Button(
+                            onClick = onSignOut,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                            ),
+                        ) {
+                            Text("Sign out")
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = onExportDebugLogs) {
+                            Text("Export Debug Logs")
+                        }
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(AppSpacing.sm))

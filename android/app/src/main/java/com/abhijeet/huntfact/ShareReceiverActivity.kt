@@ -7,13 +7,17 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.abhijeet.huntfact.utils.DebugLogger
 import com.abhijeet.huntfact.workers.ReelProcessingWorker
+import java.util.concurrent.TimeUnit
 
 class ShareReceiverActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,15 +28,15 @@ class ShareReceiverActivity : AppCompatActivity() {
             val reelUrl = intent.getStringExtra(Intent.EXTRA_TEXT)
             if (!reelUrl.isNullOrEmpty()) {
                 if (isSupportedInstagramUrl(reelUrl)) {
-                    Log.d(TAG, "✅ Received reel URL from Instagram: $reelUrl")
+                    DebugLogger.d(TAG, "✅ Received reel URL from Instagram: $reelUrl")
                     showReceivedNotification()
                     enqueueReelProcessingJob(reelUrl)
                 } else {
-                    Log.e(TAG, "❌ Unsupported shared URL: $reelUrl")
+                    DebugLogger.e(TAG, "❌ Unsupported shared URL: $reelUrl")
                     showUnsupportedNotification()
                 }
             } else {
-                Log.e(TAG, "❌ No text content found in share intent")
+                DebugLogger.e(TAG, "❌ No text content found in share intent")
             }
         }
         
@@ -62,16 +66,22 @@ class ShareReceiverActivity : AppCompatActivity() {
             .build()
 
         notificationManager.notify(RECEIVED_NOTIFICATION_ID, notification)
-        Log.d(TAG, "📲 Notification shown: Reel sent successfully")
+        DebugLogger.d(TAG, "📲 Notification shown: Reel sent successfully")
     }
 
     private fun enqueueReelProcessingJob(reelUrl: String) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
         val workRequest = OneTimeWorkRequestBuilder<ReelProcessingWorker>()
             .setInputData(workDataOf("reel_url" to reelUrl))
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
             .build()
 
         WorkManager.getInstance(this).enqueue(workRequest)
-        Log.d(TAG, "📋 Enqueued reel processing job with ID: ${workRequest.id}")
+        DebugLogger.d(TAG, "📋 Enqueued reel processing job with ID: ${workRequest.id}")
     }
 
     private fun isSupportedInstagramUrl(url: String): Boolean {

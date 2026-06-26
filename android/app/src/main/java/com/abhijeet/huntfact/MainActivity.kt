@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -49,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -60,6 +62,7 @@ import com.abhijeet.huntfact.ui.theme.AppSpacing
 import com.abhijeet.huntfact.ui.profile.ProfileViewModel
 import com.abhijeet.huntfact.ui.resources.ResourcesViewModel
 import com.abhijeet.huntfact.utils.AuthSessionManager
+import com.abhijeet.huntfact.utils.DebugLogger
 import com.abhijeet.huntfact.utils.FcmTokenManager
 import com.abhijeet.huntfact.utils.SupabaseClientProvider
 import kotlinx.coroutines.launch
@@ -103,6 +106,7 @@ class MainActivity : ComponentActivity() {
                     huntsViewModel = huntsViewModel,
                     resourcesViewModel = resourcesViewModel,
                     profileViewModel = profileViewModel,
+                    onExportDebugLogs = { exportDebugLogs() },
                 )
             }
         }
@@ -142,6 +146,27 @@ class MainActivity : ComponentActivity() {
             FcmTokenManager.saveToken(applicationContext, token)
         }
     }
+
+    private fun exportDebugLogs() {
+        val logFile = DebugLogger.getLogFile(this)
+        if (!logFile.exists()) {
+            Toast.makeText(this, getString(R.string.debug_logs_not_found), Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val authority = "${packageName}.fileprovider"
+            val fileUri = FileProvider.getUriForFile(this, authority, logFile)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, fileUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.export_debug_logs)))
+        } catch (_: Exception) {
+            Toast.makeText(this, getString(R.string.debug_logs_share_error), Toast.LENGTH_SHORT).show()
+        }
+    }
 }
 
 private enum class AppTab(val label: String) {
@@ -155,6 +180,7 @@ fun MainScreen(
     huntsViewModel: HuntsViewModel,
     resourcesViewModel: ResourcesViewModel,
     profileViewModel: ProfileViewModel,
+    onExportDebugLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val huntsUiState by huntsViewModel.uiState.collectAsState()
@@ -258,6 +284,7 @@ fun MainScreen(
                     onRefresh = { huntsViewModel.refreshHunts() },
                     onSignIn = { huntsViewModel.signInWithGoogle() },
                     onSignOut = { huntsViewModel.signOut() },
+                    onExportDebugLogs = onExportDebugLogs,
                     onOpenHunt = { hunt ->
                         context.startActivity(
                             Intent(context, ResultActivity::class.java).apply {

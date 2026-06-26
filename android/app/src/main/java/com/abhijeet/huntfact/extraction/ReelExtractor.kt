@@ -1,8 +1,8 @@
 package com.abhijeet.huntfact.extraction
 
-import android.util.Log
 import com.google.gson.JsonParser
 import com.google.gson.stream.JsonReader
+import com.abhijeet.huntfact.utils.DebugLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -66,10 +66,10 @@ object ReelExtractor {
             // Step 1: Extract shortcode
             val shortcode = extractShortcodeFromUrl(cleanedUrl)
             if (shortcode == null) {
-                Log.e(TAG, "Failed to extract shortcode from URL: $cleanedUrl")
+                DebugLogger.e(TAG, "Failed to extract shortcode from URL: $cleanedUrl")
                 return@withContext null
             }
-            Log.d(TAG, "Extracted shortcode: $shortcode")
+            DebugLogger.d(TAG, "Extracted shortcode: $shortcode")
 
             // Step 2: Fetch reel page to get CSRF token
             val pageUrl = "https://www.instagram.com/reel/$shortcode/"
@@ -80,17 +80,17 @@ object ReelExtractor {
                     .build()
                 httpClient.newCall(request).execute()
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch reel page: ${e.message}")
+                DebugLogger.e(TAG, "Failed to fetch reel page: ${e.message}", e)
                 return@withContext null
             }
 
             if (!pageResponse.isSuccessful) {
-                Log.e(TAG, "Failed to fetch reel page (status: ${pageResponse.code})")
+                DebugLogger.e(TAG, "Failed to fetch reel page (status: ${pageResponse.code})")
                 return@withContext null
             }
 
             val pageHtml = pageResponse.body?.string() ?: ""
-            Log.d(TAG, "Fetched reel page (status: ${pageResponse.code})")
+            DebugLogger.d(TAG, "Fetched reel page (status: ${pageResponse.code})")
 
             // Extract CSRF token
             var csrfToken = extractCsrfToken(pageHtml)
@@ -109,10 +109,10 @@ object ReelExtractor {
             }
 
             if (csrfToken == null) {
-                Log.e(TAG, "Failed to extract CSRF token")
+                DebugLogger.e(TAG, "Failed to extract CSRF token")
                 return@withContext null
             }
-            Log.d(TAG, "Extracted CSRF token")
+            DebugLogger.d(TAG, "Extracted CSRF token")
 
             // Step 3: Small delay (anti-bot)
             Thread.sleep(200)
@@ -152,16 +152,16 @@ object ReelExtractor {
                     .build()
                 httpClient.newCall(request).execute()
             } catch (e: Exception) {
-                Log.e(TAG, "GraphQL request failed: ${e.message}")
+                DebugLogger.e(TAG, "GraphQL request failed: ${e.message}")
                 return@withContext null
             }
 
             if (!graphqlResponse.isSuccessful) {
-                Log.e(TAG, "GraphQL request failed (status: ${graphqlResponse.code})")
+                DebugLogger.e(TAG, "GraphQL request failed (status: ${graphqlResponse.code})")
                 return@withContext null
             }
 
-            Log.d(TAG, "GraphQL query successful (status: ${graphqlResponse.code})")
+            DebugLogger.d(TAG, "GraphQL query successful (status: ${graphqlResponse.code})")
 
             // Step 5: Parse response
             val responseBody = graphqlResponse.body?.string() ?: ""
@@ -170,29 +170,29 @@ object ReelExtractor {
                 jsonReader.isLenient = true
                 JsonParser.parseReader(jsonReader).asJsonObject
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to parse GraphQL response as JSON: ${e.message}")
+                DebugLogger.e(TAG, "Failed to parse GraphQL response as JSON: ${e.message}")
                 return@withContext null
             }
 
             val dataField = jsonObject.get("data")
             if (dataField == null || dataField.isJsonNull) {
-                Log.e(TAG, "'data' field is null in response")
+                DebugLogger.e(TAG, "'data' field is null in response")
                 return@withContext null
             }
 
             if (!dataField.isJsonObject) {
-                Log.e(TAG, "'data' field is not a JSON object")
+                DebugLogger.e(TAG, "'data' field is not a JSON object")
                 return@withContext null
             }
 
             val mediaData = dataField.asJsonObject.get("xdt_shortcode_media")
             if (mediaData == null || mediaData.isJsonNull) {
-                Log.e(TAG, "'xdt_shortcode_media' is null or unavailable")
+                DebugLogger.e(TAG, "'xdt_shortcode_media' is null or unavailable")
                 return@withContext null
             }
 
             if (!mediaData.isJsonObject) {
-                Log.e(TAG, "'xdt_shortcode_media' is not a JSON object")
+                DebugLogger.e(TAG, "'xdt_shortcode_media' is not a JSON object")
                 return@withContext null
             }
 
@@ -200,7 +200,7 @@ object ReelExtractor {
             val videoUrl = mediaObj.get("video_url")
             
             if (videoUrl != null && !videoUrl.isJsonNull) {
-                Log.d(TAG, "Extracted video URL")
+                DebugLogger.d(TAG, "Extracted video URL")
                 return@withContext ReelInfo(
                     cdnUrl = videoUrl.asString,
                     caption = null,
@@ -210,14 +210,14 @@ object ReelExtractor {
             }
 
             if (mediaObj.get("is_video")?.asBoolean == true) {
-                Log.e(TAG, "Media is video but video_url field is missing")
+                DebugLogger.e(TAG, "Media is video but video_url field is missing")
                 return@withContext null
             }
 
-            Log.e(TAG, "Media is not a video")
+            DebugLogger.e(TAG, "Media is not a video")
             null
         } catch (e: Exception) {
-            Log.e(TAG, "Unexpected error: ${e.message}", e)
+            DebugLogger.e(TAG, "Unexpected error: ${e.message}", e)
             null
         }
     }
@@ -242,7 +242,7 @@ object ReelExtractor {
                 null
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error extracting shortcode: ${e.message}")
+            DebugLogger.e(TAG, "Error extracting shortcode: ${e.message}")
             return null
         }
     }

@@ -6,13 +6,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.abhijeet.huntfact.R
 import com.abhijeet.huntfact.ResultActivity
 import com.abhijeet.huntfact.hunts.HuntRepository
 import com.abhijeet.huntfact.hunts.toHuntItem
 import com.abhijeet.huntfact.network.RetrofitClient
+import com.abhijeet.huntfact.utils.DebugLogger
 import com.abhijeet.huntfact.utils.FcmTokenManager
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -23,14 +23,14 @@ import kotlinx.coroutines.launch
 class FactCheckMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
-        Log.d(TAG, "Message received from: ${remoteMessage.from}")
+        DebugLogger.d(TAG, "Message received from: ${remoteMessage.from}")
 
         val title = remoteMessage.notification?.title ?: remoteMessage.data["title"] ?: "Fact check ready"
         val body = remoteMessage.notification?.body ?: remoteMessage.data["body"] ?: "Your reel has been fact-checked."
         val huntId = remoteMessage.data["hunt_id"]?.toIntOrNull()
 
         if (huntId == null) {
-            Log.e(TAG, "Missing hunt_id in push payload")
+            DebugLogger.e(TAG, "Missing hunt_id in push payload")
             return
         }
 
@@ -39,7 +39,7 @@ class FactCheckMessagingService : FirebaseMessagingService() {
                 val hunt = RetrofitClient.getApiService(context = applicationContext).getHunt(huntId).toHuntItem()
                 HuntRepository(applicationContext).upsertLocal(hunt)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to prefetch hunt result: ${e.message}", e)
+                DebugLogger.e(TAG, "Failed to prefetch hunt result: ${e.message}", e)
             }
         }
 
@@ -47,13 +47,13 @@ class FactCheckMessagingService : FirebaseMessagingService() {
     }
 
     override fun onNewToken(token: String) {
-        Log.d(TAG, "New FCM token: $token")
+        DebugLogger.d(TAG, "New FCM token: $token")
         saveFcmToken(token)
     }
 
     private fun saveFcmToken(token: String) {
         FcmTokenManager.saveToken(this, token)
-        Log.d(TAG, "FCM token saved: $token")
+        DebugLogger.d(TAG, "FCM token saved: $token")
     }
 
     private fun showNotification(

@@ -5,8 +5,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -18,9 +19,12 @@ import com.abhijeet.huntfact.hunts.HuntRepository
 import com.abhijeet.huntfact.network.RetrofitClient
 import com.abhijeet.huntfact.network.StartHuntRequest
 import com.abhijeet.huntfact.utils.AuthSessionManager
+import com.abhijeet.huntfact.utils.DebugLogger
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
 import retrofit2.HttpException
+import java.net.InetAddress
+import java.net.UnknownHostException
 
 class ReelProcessingWorker(
     context: Context,
@@ -32,46 +36,59 @@ class ReelProcessingWorker(
             val reelUrl = inputData.getString("reel_url")
             
             if (reelUrl.isNullOrEmpty()) {
-                Log.e(TAG, "❌ Invalid reel URL provided")
+                DebugLogger.e(TAG, "❌ Invalid reel URL provided")
                 showErrorNotification()
                 return Result.failure()
             }
 
-            Log.d(TAG, "🔍 Starting to process reel: $reelUrl")
+            DebugLogger.d(TAG, "🔍 Starting to process reel: $reelUrl")
 
-            Log.d(TAG, "📹 Extracting CDN URL from Instagram...")
+            DebugLogger.d(TAG, "📹 Extracting CDN URL from Instagram...")
             val cdnUrl = ReelExtractor.extractCdnUrl(reelUrl)
             if (cdnUrl.isNullOrEmpty()) {
-                Log.e(TAG, "❌ Failed to extract CDN URL from shared URL")
+                if (isLikelyInstagramNetworkIssue()) {
+                    if (runAttemptCount < MAX_NETWORK_RETRY_ATTEMPTS) {
+                        DebugLogger.e(
+                            TAG,
+                            "🌐 Failed to reach Instagram (attempt ${runAttemptCount + 1}/$MAX_NETWORK_RETRY_ATTEMPTS). Retrying.",
+                        )
+                        showNetworkIssueNotification(isRetrying = true)
+                        return Result.retry()
+                    }
+                    DebugLogger.e(TAG, "🌐 Failed to reach Instagram after retries.")
+                    showNetworkIssueNotification(isRetrying = false)
+                    return Result.failure()
+                }
+                DebugLogger.e(TAG, "❌ Failed to extract CDN URL from shared URL")
                 showErrorNotification()
                 return Result.failure()
             }
 
-            Log.d(TAG, "✅ Successfully extracted CDN URL")
-            Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            Log.d(TAG, "🎬 CDN VIDEO URL: $cdnUrl")
-            Log.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            DebugLogger.d(TAG, "✅ Successfully extracted CDN URL")
+            DebugLogger.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            DebugLogger.d(TAG, "🎬 CDN VIDEO URL: $cdnUrl")
+            DebugLogger.d(TAG, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             val accessToken = AuthSessionManager.getAccessToken(applicationContext)
             if (accessToken.isNullOrBlank()) {
-                Log.e(TAG, "❌ Missing Supabase session, user needs to sign in again")
+                DebugLogger.e(TAG, "❌ Missing Supabase session, user needs to sign in again")
                 showSignInRequiredNotification()
                 return Result.failure()
             }
 
             // Get FCM token
-            Log.d(TAG, "🔐 Fetching FCM token...")
+            DebugLogger.d(TAG, "🔐 Fetching FCM token...")
             val fcmToken = try {
                 FirebaseMessaging.getInstance().token.await()
             } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed to get FCM token: ${e.message}")
+                DebugLogger.e(TAG, "❌ Failed to get FCM token: ${e.message}")
                 showErrorNotification()
                 return Result.failure()
             }
-            Log.d(TAG, "✅ FCM token obtained: ${fcmToken.take(20)}...")
+            DebugLogger.d(TAG, "✅ FCM token obtained: ${fcmToken.take(20)}...")
 
             // Call backend API
-            Log.d(TAG, "📤 Sending reel to HuntFact backend...")
+            DebugLogger.d(TAG, "📤 Sending reel to HuntFact backend...")
             val apiService = RetrofitClient.getApiService(context = applicationContext)
             val cleanedReelUrl = ReelExtractor.cleanInstagramUrl(reelUrl)
             val request = StartHuntRequest(
@@ -105,8 +122,8 @@ class ReelProcessingWorker(
                         summary = response.summary,
                     )
                     HuntRepository(applicationContext).upsertLocal(huntItem)
-                    Log.d(TAG, "✅ Successfully sent to HuntFact backend!")
-                    Log.d(TAG, "📨 Response: ${response.message}")
+                    DebugLogger.d(TAG, "✅ Successfully sent to HuntFact backend!")
+                    DebugLogger.d(TAG, "📨 Response: ${response.message}")
                     showSuccessNotification(
                         title = "Claim check started",
                         message = "We received your reel and started fact-checking.",
@@ -114,22 +131,22 @@ class ReelProcessingWorker(
                     )
                     Result.success()
                 } else {
-                    Log.e(TAG, "❌ Backend API returned error: ${response.message}")
+                    DebugLogger.e(TAG, "❌ Backend API returned error: ${response.message}")
                     showErrorNotification()
                     Result.failure()
                 }
             } catch (e: Exception) {
                 if (e is HttpException && (e.code() == 401 || e.code() == 403)) {
-                    Log.e(TAG, "❌ Backend rejected auth token: HTTP ${e.code()}")
+                    DebugLogger.e(TAG, "❌ Backend rejected auth token: HTTP ${e.code()}")
                     showSignInRequiredNotification()
                     return Result.failure()
                 }
-                Log.e(TAG, "❌ API request failed: ${e.message}", e)
+                DebugLogger.e(TAG, "❌ API request failed: ${e.message}", e)
                 showErrorNotification()
                 Result.failure()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Unexpected error in worker: ${e.message}", e)
+            DebugLogger.e(TAG, "❌ Unexpected error in worker: ${e.message}", e)
             showErrorNotification()
             Result.failure()
         }
@@ -180,7 +197,7 @@ class ReelProcessingWorker(
             .build()
 
         notificationManager.notify(SUCCESS_NOTIFICATION_ID, notification)
-        Log.d(TAG, "📲 Success notification shown: $title - $message")
+        DebugLogger.d(TAG, "📲 Success notification shown: $title - $message")
     }
 
     private fun showErrorNotification() {
@@ -204,7 +221,60 @@ class ReelProcessingWorker(
             .build()
 
         notificationManager.notify(ERROR_NOTIFICATION_ID, notification)
-        Log.e(TAG, "📲 Error notification shown: Generic error message")
+        DebugLogger.e(TAG, "📲 Error notification shown: Generic error message")
+    }
+
+    private fun showNetworkIssueNotification(isRetrying: Boolean) {
+        val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "reel_network_channel"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "Network Issues",
+                NotificationManager.IMPORTANCE_HIGH,
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val contentText = if (isRetrying) {
+            "Instagram is temporarily unreachable. We'll retry automatically."
+        } else {
+            "Unable to reach Instagram. Check internet, DNS, VPN, or ad blocker and try again."
+        }
+
+        val notification = NotificationCompat.Builder(applicationContext, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Network issue while processing reel")
+            .setContentText(contentText)
+            .setAutoCancel(true)
+            .build()
+
+        notificationManager.notify(NETWORK_ISSUE_NOTIFICATION_ID, notification)
+        DebugLogger.e(TAG, "📲 Network issue notification shown: $contentText")
+    }
+
+    private fun isLikelyInstagramNetworkIssue(): Boolean {
+        if (!isNetworkConnected()) {
+            return true
+        }
+
+        return try {
+            InetAddress.getAllByName("www.instagram.com")
+            false
+        } catch (_: UnknownHostException) {
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isNetworkConnected(): Boolean {
+        val connectivityManager = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val activeNetwork = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private fun showSignInRequiredNotification() {
@@ -228,7 +298,7 @@ class ReelProcessingWorker(
             .build()
 
         notificationManager.notify(SIGN_IN_REQUIRED_NOTIFICATION_ID, notification)
-        Log.e(TAG, "📲 Error notification shown: Sign-in required")
+        DebugLogger.e(TAG, "📲 Error notification shown: Sign-in required")
     }
 
     companion object {
@@ -236,5 +306,7 @@ class ReelProcessingWorker(
         private const val SUCCESS_NOTIFICATION_ID = 101
         private const val ERROR_NOTIFICATION_ID = 102
         private const val SIGN_IN_REQUIRED_NOTIFICATION_ID = 103
+        private const val NETWORK_ISSUE_NOTIFICATION_ID = 105
+        private const val MAX_NETWORK_RETRY_ATTEMPTS = 3
     }
 }
