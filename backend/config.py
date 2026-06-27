@@ -94,6 +94,27 @@ class FirecrawlSettings(SectionSettings):
     api_key: str = ""
 
 
+class WorkflowAdmissionSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="WORKFLOW_ADMISSION_",
+    )
+    retry_count: int = 3
+    retry_base_delay_ms: int = 300
+
+
+class WorkflowCleanupSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="WORKFLOW_CLEANUP_",
+    )
+    processing_stale_minutes: int = 5
+    queued_stale_minutes: int = 30
+    interval_seconds: int = 30
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
@@ -112,5 +133,7 @@ class Settings(BaseSettings):
     chromadb: ChromaDBSettings = Field(default_factory=ChromaDBSettings)
     firebase: FirebaseSettings = Field(default_factory=FirebaseSettings)
     firecrawl: FirecrawlSettings = Field(default_factory=FirecrawlSettings)
+    workflow_admission: WorkflowAdmissionSettings = Field(default_factory=WorkflowAdmissionSettings)
+    workflow_cleanup: WorkflowCleanupSettings = Field(default_factory=WorkflowCleanupSettings)
 
 settings = Settings()

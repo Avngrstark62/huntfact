@@ -190,6 +190,34 @@ class Database:
                 raise
         return stale_ids
 
+    def mark_stale_queued_hunts_failed(
+        self,
+        session: Session,
+        stale_minutes: int = 30,
+    ) -> list[int]:
+        from db.models.hunt import Hunt
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+        stale_hunts = (
+            session.query(Hunt)
+            .filter(Hunt.status == "queued", Hunt.updated_at < cutoff)
+            .all()
+        )
+        stale_ids: list[int] = []
+        for hunt in stale_hunts:
+            stale_ids.append(hunt.id)
+            hunt.status = "failed"
+            hunt.error_message = f"Marked failed by cleanup after {stale_minutes} minutes in queued"
+            hunt.completed_at = None
+
+        if stale_hunts:
+            try:
+                session.commit()
+            except:
+                session.rollback()
+                raise
+        return stale_ids
+
     def delete_workflow_admissions_for_failed_hunts(self, session: Session) -> int:
         from db.models.hunt import Hunt
         from db.models.workflow_admission import WorkflowAdmission

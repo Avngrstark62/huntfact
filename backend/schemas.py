@@ -22,11 +22,6 @@ class StartHuntResponse(BaseModel):
     success: bool = Field(..., description="Whether the hunt was started successfully")
     message: str = Field(..., description="Status message")
     hunt_id: int = Field(..., description="The hunt id for status tracking")
-    status: str = Field(..., description="Current hunt status")
-    result: str | None = Field(None, description="The hunt result")
-    title: str | None = Field(None, description="Short title for the hunt summary")
-    summary: str | None = Field(None, description="One-paragraph summary for the hunt")
-    trust_score: int | None = Field(None, description="Overall trust score from 0 to 100")
 
 
 class HuntResponse(BaseModel):

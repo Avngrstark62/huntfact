@@ -17,18 +17,6 @@ router = APIRouter()
 HUNT_STATUS_COMPLETED = "completed"
 
 
-def _require_hunt_metadata(hunt) -> None:
-    if not hunt.title or not hunt.summary or hunt.trust_score is None:
-        raise RuntimeError(
-            f"Hunt metadata missing for hunt_id={hunt.id}. "
-            "title/summary/trust_score must be set before serving this response."
-        )
-
-
-def _is_completed(hunt) -> bool:
-    return hunt.status == HUNT_STATUS_COMPLETED
-
-
 @router.get("/health", response_model=HealthResponse, tags=["health"])
 def get_health() -> HealthResponse:
     """
@@ -64,7 +52,7 @@ async def start_hunt(
     - **video_link**: URL of the video to analyze
     - **cdn_link**: CDN link for the video
     
-    Returns the hunt result and status.
+    Returns whether workflow publish was accepted.
     """
     try:
         logger.info(
@@ -90,18 +78,12 @@ async def start_hunt(
         logger.info("Created or reused hunt with id: %s", existing_hunt.id)
 
         db.add_hunt_user(session, existing_hunt.id, authenticated_user.sub)
-        route_status = existing_hunt.status
-        if route_status == HUNT_STATUS_COMPLETED:
+        if existing_hunt.status == HUNT_STATUS_COMPLETED:
             await publish_notify_best_effort(existing_hunt.id, request.fcm_token)
             return StartHuntResponse(
                 success=True,
                 message="Hunt started successfully",
                 hunt_id=existing_hunt.id,
-                status=route_status,
-                result=None,
-                title=existing_hunt.title,
-                summary=existing_hunt.summary,
-                trust_score=existing_hunt.trust_score,
             )
 
         try:
@@ -123,22 +105,12 @@ async def start_hunt(
                 success=False,
                 message="Hunt failed to queue workflow",
                 hunt_id=existing_hunt.id,
-                status=route_status,
-                result=None,
-                title=existing_hunt.title,
-                summary=existing_hunt.summary,
-                trust_score=existing_hunt.trust_score,
             )
 
         return StartHuntResponse(
             success=admission_success,
             message=admission_message,
             hunt_id=existing_hunt.id,
-            status=route_status,
-            result=None,
-            title=existing_hunt.title,
-            summary=existing_hunt.summary,
-            trust_score=existing_hunt.trust_score,
         )
              
     except Exception as e:
@@ -167,8 +139,6 @@ async def get_hunt(
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={"detail": f"Hunt not found for hunt_id={hunt_id}"},
             )
-        if _is_completed(hunt):
-            _require_hunt_metadata(hunt)
 
         return HuntResponse(
             id=hunt.id,
@@ -209,8 +179,6 @@ async def get_user_hunts(
         hunts = db.get_hunts_by_user_id(session, authenticated_user.sub)
         responses: list[HuntResponse] = []
         for hunt in hunts:
-            if _is_completed(hunt):
-                _require_hunt_metadata(hunt)
             responses.append(HuntResponse(
                 id=hunt.id,
                 video_link=hunt.video_link,
