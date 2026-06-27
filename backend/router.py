@@ -1,25 +1,20 @@
 from fastapi import APIRouter, status, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-import uuid
 
 from logging_config import get_logger
 from schemas import StartHuntRequest, StartHuntResponse, HealthResponse, HuntResponse
 from config import settings
 from db.database import db
-from rmq.publisher import publish_task, publish_workflow
-from rmq.schemas import TaskMessage, WorkflowMessage
-from rmq.constants import NOTIFY
+from services.notification_sender.notify_publish import publish_notify_best_effort
+from services.workflow_admission.workflow_admission import admit_and_publish_workflow
+from services.hunt_limits.hunt_limits import enforce_user_hunt_limit
 from health import is_system_healthy, check_health_dependency
 from auth.supabase_auth import AuthenticatedUser, get_authenticated_user
 
 logger = get_logger("router")
 router = APIRouter()
-HUNT_STATUS_QUEUED = "queued"
-HUNT_STATUS_PROCESSING = "processing"
 HUNT_STATUS_COMPLETED = "completed"
-HUNT_STATUS_FAILED = "failed"
 
 
 def _require_hunt_metadata(hunt) -> None:
@@ -72,21 +67,6 @@ async def start_hunt(
     Returns the hunt result and status.
     """
     try:
-        async def _publish_hunt_workflow(hunt_id: int) -> None:
-            job_id = str(uuid.uuid4())
-            logger.info("Generated job_id: %s", job_id)
-            await publish_workflow(
-                WorkflowMessage(
-                    workflow_id=job_id,
-                    payload={
-                        "hunt_id": hunt_id,
-                        "fcm_token": request.fcm_token,
-                        "cdn_link": str(request.cdn_link),
-                    },
-                )
-            )
-            logger.info("Workflow published for job_id: %s", job_id)
-
         logger.info(
             "Starting hunt for user_id=%s video=%s cdn=%s",
             authenticated_user.sub,
@@ -94,159 +74,67 @@ async def start_hunt(
             request.cdn_link,
         )
 
-        user_hunts_limit = db.get_or_create_user_hunts_limit(session, authenticated_user.sub)
-        active_hunts_count = db.get_active_hunts_count_by_user_id(session, authenticated_user.sub)
-        if active_hunts_count >= user_hunts_limit:
-            logger.info(
-                "Hunt limit reached for user_id=%s active_hunts=%s hunts_limit=%s",
-                authenticated_user.sub,
-                active_hunts_count,
-                user_hunts_limit,
-            )
-            return JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={
-                    "detail": (
-                        f"Hunt limit reached. You have {active_hunts_count} hunts in "
-                        f"queued/processing/completed states with a limit of {user_hunts_limit}."
-                    )
-                },
-            )
+        hunt_limit_response = enforce_user_hunt_limit(session, authenticated_user.sub)
+        if hunt_limit_response is not None:
+            return hunt_limit_response
 
         video_link = str(request.video_link)
-        existing_hunt = db.get_hunt_by_video_link(session, video_link)
-
-        if existing_hunt is None:
-            try:
-                existing_hunt = db.create_hunt(
-                    session,
-                    video_link,
-                    thumbnail_url=str(request.thumbnail_url) if request.thumbnail_url else None,
-                    caption=request.caption,
-                    creator_handle=request.creator_handle,
-                    platform=request.platform,
-                )
-                logger.info("Created new hunt with id: %s", existing_hunt.id)
-            except IntegrityError:
-                logger.info("Concurrent hunt create detected for video=%s", video_link)
-                existing_hunt = db.get_hunt_by_video_link(session, video_link)
-                if existing_hunt is None:
-                    raise
-
-        db.add_hunt_user(session, existing_hunt.id, authenticated_user.sub)
-        db.update_hunt_metadata(
+        existing_hunt = db.get_or_create_hunt(
             session,
-            existing_hunt.id,
+            video_link,
             thumbnail_url=str(request.thumbnail_url) if request.thumbnail_url else None,
             caption=request.caption,
             creator_handle=request.creator_handle,
             platform=request.platform,
         )
+        logger.info("Created or reused hunt with id: %s", existing_hunt.id)
 
-        if existing_hunt.status == HUNT_STATUS_COMPLETED and existing_hunt.result:
-            logger.info("Returning completed hunt for video=%s", request.video_link)
-            task = TaskMessage(
-                step=NOTIFY,
-                priority=10,
-                payload={
-                    "fcm_token": request.fcm_token,
-                    "hunt_id": existing_hunt.id,
-                },
-            )
-            await publish_task(task)
-            logger.info("Task published: %s", task.step)
-            _require_hunt_metadata(existing_hunt)
-
+        db.add_hunt_user(session, existing_hunt.id, authenticated_user.sub)
+        route_status = existing_hunt.status
+        if route_status == HUNT_STATUS_COMPLETED:
+            await publish_notify_best_effort(existing_hunt.id, request.fcm_token)
             return StartHuntResponse(
                 success=True,
                 message="Hunt started successfully",
                 hunt_id=existing_hunt.id,
-                status=HUNT_STATUS_COMPLETED,
-                result=existing_hunt.result,
+                status=route_status,
+                result=None,
                 title=existing_hunt.title,
                 summary=existing_hunt.summary,
                 trust_score=existing_hunt.trust_score,
             )
 
-        if existing_hunt.status == HUNT_STATUS_QUEUED:
-            existing_hunt, transitioned = db.transition_hunt_to_processing(
-                session,
+        try:
+            admission_success, admission_message = await admit_and_publish_workflow(
+                session=session,
+                hunt_id=existing_hunt.id,
+                video_link=video_link,
+                cdn_link=str(request.cdn_link),
+                fcm_token=request.fcm_token,
+            )
+        except Exception as publish_error:
+            logger.error(
+                "Workflow publish failed for hunt_id=%s: %s",
                 existing_hunt.id,
+                str(publish_error),
+                exc_info=True,
             )
-            if existing_hunt is None:
-                raise RuntimeError("Hunt disappeared while transitioning to processing")
-            if transitioned:
-                logger.info("Queued hunt moved to processing for hunt_id=%s", existing_hunt.id)
-                await _publish_hunt_workflow(existing_hunt.id)
-            else:
-                logger.info("Queued hunt already being processed for hunt_id=%s", existing_hunt.id)
             return StartHuntResponse(
-                success=True,
-                message="Hunt started successfully",
+                success=False,
+                message="Hunt failed to queue workflow",
                 hunt_id=existing_hunt.id,
-                status=HUNT_STATUS_PROCESSING,
+                status=route_status,
                 result=None,
                 title=existing_hunt.title,
                 summary=existing_hunt.summary,
                 trust_score=existing_hunt.trust_score,
             )
-
-        if existing_hunt.status == HUNT_STATUS_PROCESSING:
-            logger.info("Hunt already processing for hunt_id=%s", existing_hunt.id)
-            return StartHuntResponse(
-                success=True,
-                message="Hunt started successfully",
-                hunt_id=existing_hunt.id,
-                status=HUNT_STATUS_PROCESSING,
-                result=None,
-                title=existing_hunt.title,
-                summary=existing_hunt.summary,
-                trust_score=existing_hunt.trust_score,
-            )
-
-        if existing_hunt.status == HUNT_STATUS_FAILED:
-            existing_hunt, transitioned = db.transition_hunt_to_processing(
-                session,
-                existing_hunt.id,
-                clear_result=True,
-            )
-            if existing_hunt is None:
-                raise RuntimeError("Hunt disappeared while retrying failed status")
-            if transitioned:
-                logger.info("Retrying failed hunt for hunt_id=%s", existing_hunt.id)
-                await _publish_hunt_workflow(existing_hunt.id)
-            else:
-                logger.info("Failed hunt already transitioned for hunt_id=%s", existing_hunt.id)
-            return StartHuntResponse(
-                success=True,
-                message="Hunt started successfully",
-                hunt_id=existing_hunt.id,
-                status=HUNT_STATUS_PROCESSING,
-                result=None,
-                title=existing_hunt.title,
-                summary=existing_hunt.summary,
-                trust_score=existing_hunt.trust_score,
-            )
-
-        logger.info(
-            "Unknown hunt status=%s for hunt_id=%s, treating as processing",
-            existing_hunt.status,
-            existing_hunt.id,
-        )
-        existing_hunt, transitioned = db.transition_hunt_to_processing(
-            session,
-            existing_hunt.id,
-        )
-        if existing_hunt is None:
-            raise RuntimeError("Hunt disappeared while handling unknown status")
-        if transitioned:
-            await _publish_hunt_workflow(existing_hunt.id)
 
         return StartHuntResponse(
-            success=True,
-            message="Hunt started successfully",
+            success=admission_success,
+            message=admission_message,
             hunt_id=existing_hunt.id,
-            status=HUNT_STATUS_PROCESSING,
+            status=route_status,
             result=None,
             title=existing_hunt.title,
             summary=existing_hunt.summary,

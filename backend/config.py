@@ -40,6 +40,11 @@ class RabbitMQSettings(SectionSettings):
     url: str = "amqp://guest:guest@localhost:5672/"
     task_queue_name: str = "task_queue"
     workflow_queue_name: str = "workflow_queue"
+    dead_letter_exchange_name: str = "huntfact.dead_letter"
+    task_dead_letter_queue_name: str = "task_queue.dead_letter"
+    workflow_dead_letter_queue_name: str = "workflow_queue.dead_letter"
+    task_dead_letter_routing_key: str = "task.dead_letter"
+    workflow_dead_letter_routing_key: str = "workflow.dead_letter"
     max_priority: int = 20
     prefetch_count: int = 1
 

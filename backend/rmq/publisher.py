@@ -12,6 +12,21 @@ from logging_config import get_logger
 logger = get_logger("rmq.publisher")
 
 
+def _task_queue_arguments() -> dict:
+    return {
+        "x-max-priority": settings.rabbitmq.max_priority,
+        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+        "x-dead-letter-routing-key": settings.rabbitmq.task_dead_letter_routing_key,
+    }
+
+
+def _workflow_queue_arguments() -> dict:
+    return {
+        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+        "x-dead-letter-routing-key": settings.rabbitmq.workflow_dead_letter_routing_key,
+    }
+
+
 async def publish_task(task: TaskMessage):
     channel = await rabbitmq.get_channel(settings.rabbitmq.prefetch_count)
 
@@ -19,7 +34,7 @@ async def publish_task(task: TaskMessage):
         await channel.declare_queue(
             settings.rabbitmq.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.rabbitmq.max_priority},
+            arguments=_task_queue_arguments(),
         )
 
         message = aio_pika.Message(
@@ -73,7 +88,7 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
         await channel.declare_queue(
             settings.rabbitmq.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.rabbitmq.max_priority},
+            arguments=_task_queue_arguments(),
         )
 
         message = aio_pika.Message(
@@ -103,6 +118,7 @@ async def publish_workflow(workflow: WorkflowMessage):
         await channel.declare_queue(
             settings.rabbitmq.workflow_queue_name,
             durable=True,
+            arguments=_workflow_queue_arguments(),
         )
 
         message = aio_pika.Message(

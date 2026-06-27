@@ -5,16 +5,16 @@ Focus: crash prevention, graceful failure behavior, and failure propagation qual
 ## Release Blockers
 
 1. **Notification-only failure can mark completed hunts as failed** (`backend/orchestrator.py`)  
-   `NOTIFY` failure is handled in the same global exception path as core pipeline failures; this can overwrite successful fact-check outcomes with failed status.
+   `NOTIFY` is now handled after the critical pipeline/save path in an isolated non-critical block, so notification errors do not flip successfully saved hunts to failed.
 
 2. **Consumer process can die on a single bad message** (`backend/rmq/consumer.py`)  
-   Message processing exceptions are re-raised; one poison message can terminate task/workflow consumers and stop background processing.
+   Per-message exceptions are now handled without re-raising out of the consume loop, and consumer-level failures auto-reconnect instead of terminating task/workflow processing.
 
-3. **No poison-message isolation path** (`backend/rmq/consumer.py`, `backend/worker.py`)  
-   Failed messages are not routed to dead-letter handling with explicit terminal classification; repeated failures can cause retry churn/outage behavior.
+3. **No poison-message isolation path** (`backend/rmq/consumer.py`, `backend/worker.py`, `backend/rmq/publisher.py`, `backend/config.py`)  
+   Consumers now classify terminal failures (`invalid_json`, schema validation failure, handler exception), quarantine offending messages to dedicated dead-letter queues with error metadata, and ack/reject safely so poison messages no longer churn in primary queues.
 
-4. **Workflow publish failures leave inconsistent user-visible state** (`backend/router.py`)  
-   Hunt is transitioned to `processing` before workflow publish; publish errors return 500 while the hunt may remain stuck in processing.
+4. **Workflow publish failures leave inconsistent user-visible state** (`backend/router.py`, `backend/orchestrator.py`, `backend/db/database.py`)  
+   Route now keeps hunts in `queued` during publish, marks `failed` on publish errors, and avoids queue-state/DB-state divergence. Orchestrator sets `processing` when workflow execution actually begins, and retry publish from `failed` is guarded by an atomic failed->queued transition.
 
 ## High Severity
 

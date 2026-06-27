@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from config import settings
 from typing import Generator
@@ -36,7 +37,7 @@ class Database:
 
     # -------- CRUD methods --------
 
-    def create_hunt(
+    def get_or_create_hunt(
         self,
         session: Session,
         video_link: str,
@@ -46,6 +47,10 @@ class Database:
         platform: str = "instagram",
     ):
         from db.models.hunt import Hunt
+
+        existing_hunt = self.get_hunt_by_video_link(session, video_link)
+        if existing_hunt is not None:
+            return existing_hunt
 
         hunt = Hunt(
             video_link=video_link,
@@ -58,6 +63,12 @@ class Database:
         session.add(hunt)
         try:
             session.commit()
+        except IntegrityError:
+            session.rollback()
+            existing_hunt = self.get_hunt_by_video_link(session, video_link)
+            if existing_hunt is None:
+                raise
+            return existing_hunt
         except:
             session.rollback()
             raise
@@ -85,6 +96,125 @@ class Database:
         from db.models.hunt import Hunt
 
         return session.query(Hunt).filter(Hunt.video_link == video_link).first()
+
+    def create_workflow_admission(
+        self,
+        session: Session,
+        workflow_id: str,
+        video_link: str,
+        hunt_id: int,
+    ) -> bool:
+        from db.models.workflow_admission import WorkflowAdmission
+
+        row = WorkflowAdmission(
+            workflow_id=workflow_id,
+            video_link=video_link,
+            hunt_id=hunt_id,
+        )
+        session.add(row)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            return False
+        except:
+            session.rollback()
+            raise
+        return True
+
+    def delete_workflow_admission(self, session: Session, workflow_id: str) -> bool:
+        from db.models.workflow_admission import WorkflowAdmission
+
+        deleted_rows = (
+            session.query(WorkflowAdmission)
+            .filter(WorkflowAdmission.workflow_id == workflow_id)
+            .delete(synchronize_session=False)
+        )
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        return deleted_rows > 0
+
+    def clear_workflow_admission_if_hunt_failed(
+        self,
+        session: Session,
+        workflow_id: str,
+        hunt_id: int,
+    ) -> bool:
+        from db.models.hunt import Hunt
+        from db.models.workflow_admission import WorkflowAdmission
+
+        hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
+        if hunt is None or hunt.status != "failed":
+            return False
+
+        deleted_rows = (
+            session.query(WorkflowAdmission)
+            .filter(WorkflowAdmission.workflow_id == workflow_id)
+            .delete(synchronize_session=False)
+        )
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        return deleted_rows > 0
+
+    def mark_stale_processing_hunts_failed(
+        self,
+        session: Session,
+        stale_minutes: int = 5,
+    ) -> list[int]:
+        from db.models.hunt import Hunt
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+        stale_hunts = (
+            session.query(Hunt)
+            .filter(Hunt.status == "processing", Hunt.updated_at < cutoff)
+            .all()
+        )
+        stale_ids: list[int] = []
+        for hunt in stale_hunts:
+            stale_ids.append(hunt.id)
+            hunt.status = "failed"
+            hunt.error_message = f"Marked failed by cleanup after {stale_minutes} minutes in processing"
+            hunt.completed_at = None
+
+        if stale_hunts:
+            try:
+                session.commit()
+            except:
+                session.rollback()
+                raise
+        return stale_ids
+
+    def delete_workflow_admissions_for_failed_hunts(self, session: Session) -> int:
+        from db.models.hunt import Hunt
+        from db.models.workflow_admission import WorkflowAdmission
+
+        failed_admissions = (
+            session.query(WorkflowAdmission.workflow_id)
+            .join(Hunt, WorkflowAdmission.hunt_id == Hunt.id)
+            .filter(Hunt.status == "failed")
+            .all()
+        )
+        workflow_ids = [row[0] for row in failed_admissions]
+        if not workflow_ids:
+            return 0
+
+        deleted_rows = (
+            session.query(WorkflowAdmission)
+            .filter(WorkflowAdmission.workflow_id.in_(workflow_ids))
+            .delete(synchronize_session=False)
+        )
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        return int(deleted_rows or 0)
 
     def update_hunt_result(
         self,
@@ -140,39 +270,6 @@ class Database:
             raise
         session.refresh(hunt)
         return hunt
-
-    def transition_hunt_to_processing(
-        self,
-        session: Session,
-        hunt_id: int,
-        clear_result: bool = False,
-    ):
-        from db.models.hunt import Hunt
-
-        update_data = {
-            Hunt.status: "processing",
-            Hunt.error_message: None,
-            Hunt.completed_at: None,
-        }
-        if clear_result:
-            update_data[Hunt.result] = None
-
-        updated_rows = (
-            session.query(Hunt)
-            .filter(Hunt.id == hunt_id, Hunt.status != "processing")
-            .update(update_data, synchronize_session=False)
-        )
-        try:
-            session.commit()
-        except:
-            session.rollback()
-            raise
-
-        hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
-        if hunt is None:
-            return None, False
-
-        return hunt, updated_rows > 0
 
     def update_hunt_metadata(
         self,
@@ -281,7 +378,7 @@ class Database:
             .join(HuntUser, Hunt.id == HuntUser.hunt_id)
             .filter(
                 HuntUser.user_id == user_id,
-                Hunt.status.in_(["queued", "processing", "completed"]),
+                Hunt.status.in_(["queued", "starting", "processing", "completed"]),
             )
             .count()
         )

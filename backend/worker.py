@@ -279,7 +279,14 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
 
 async def main():
     setup_logging()
-    initialize_firebase()
+    try:
+        initialize_firebase()
+    except Exception as e:
+        logger.error(
+            "Firebase initialization failed at startup; worker will continue and notification tasks may fail: %s",
+            str(e),
+            exc_info=True,
+        )
     logger.info("Starting worker...")
 
     loop = asyncio.get_event_loop()

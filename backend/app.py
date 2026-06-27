@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+import aio_pika
 
 from logging_config import setup_logging, get_logger
 from config import settings
@@ -35,14 +36,43 @@ class App:
             try:
                 await rabbitmq.connect()
                 channel = await rabbitmq.get_channel()
+                dlx = await channel.declare_exchange(
+                    settings.rabbitmq.dead_letter_exchange_name,
+                    aio_pika.ExchangeType.DIRECT,
+                    durable=True,
+                )
+                task_dlq = await channel.declare_queue(
+                    settings.rabbitmq.task_dead_letter_queue_name,
+                    durable=True,
+                )
+                workflow_dlq = await channel.declare_queue(
+                    settings.rabbitmq.workflow_dead_letter_queue_name,
+                    durable=True,
+                )
+                await task_dlq.bind(
+                    dlx,
+                    routing_key=settings.rabbitmq.task_dead_letter_routing_key,
+                )
+                await workflow_dlq.bind(
+                    dlx,
+                    routing_key=settings.rabbitmq.workflow_dead_letter_routing_key,
+                )
                 await channel.declare_queue(
                     settings.rabbitmq.task_queue_name,
                     durable=True,
-                    arguments={"x-max-priority": settings.rabbitmq.max_priority}
+                    arguments={
+                        "x-max-priority": settings.rabbitmq.max_priority,
+                        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+                        "x-dead-letter-routing-key": settings.rabbitmq.task_dead_letter_routing_key,
+                    },
                 )
                 await channel.declare_queue(
                     settings.rabbitmq.workflow_queue_name,
                     durable=True,
+                    arguments={
+                        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+                        "x-dead-letter-routing-key": settings.rabbitmq.workflow_dead_letter_routing_key,
+                    },
                 )
                 rabbitmq.is_healthy = True
                 logger.info("RabbitMQ connection established successfully")
