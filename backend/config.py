@@ -58,7 +58,7 @@ class AssemblyAISettings(SectionSettings):
 
 class LLMSettings(SectionSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="allow", env_prefix="LLM_")
- t   reasoning_model: str = "gpt-4.1"
+    reasoning_model: str = "gpt-4.1"
     cheap_model: str = "gpt-4.1-nano"
     debug: bool = False
 
