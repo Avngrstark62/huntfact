@@ -58,7 +58,7 @@ class AssemblyAISettings(SectionSettings):
 
 class LLMSettings(SectionSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="allow", env_prefix="LLM_")
-    reasoning_model: str = "gpt-4.1"
+ t   reasoning_model: str = "gpt-4.1"
     cheap_model: str = "gpt-4.1-nano"
     debug: bool = False
 
@@ -115,6 +115,15 @@ class WorkflowCleanupSettings(SectionSettings):
     interval_seconds: int = 30
 
 
+class SecuritySettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="SECURITY_",
+    )
+    allowed_cdn_host_suffixes: list[str] = ["fbcdn.net", "cdninstagram.com"]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
@@ -135,5 +144,6 @@ class Settings(BaseSettings):
     firecrawl: FirecrawlSettings = Field(default_factory=FirecrawlSettings)
     workflow_admission: WorkflowAdmissionSettings = Field(default_factory=WorkflowAdmissionSettings)
     workflow_cleanup: WorkflowCleanupSettings = Field(default_factory=WorkflowCleanupSettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
 
 settings = Settings()

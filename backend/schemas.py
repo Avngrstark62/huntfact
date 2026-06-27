@@ -1,6 +1,9 @@
 from datetime import datetime
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+from config import settings
 
 
 class HealthResponse(BaseModel):
@@ -16,6 +19,31 @@ class StartHuntRequest(BaseModel):
     caption: str | None = Field(None, description="Caption text for the shared reel")
     creator_handle: str | None = Field(None, description="Creator handle for the shared reel")
     platform: str = Field("instagram", description="Source platform for the shared media")
+
+    @field_validator("cdn_link")
+    @classmethod
+    def validate_cdn_link_against_allowlist(cls, value: HttpUrl) -> HttpUrl:
+        parsed = urlparse(str(value))
+        host = (parsed.hostname or "").strip().lower()
+        if not host:
+            raise ValueError("cdn_link must include a valid hostname")
+
+        allowed_suffixes = [
+            suffix.strip().lower()
+            for suffix in settings.security.allowed_cdn_host_suffixes
+            if isinstance(suffix, str) and suffix.strip()
+        ]
+        if not allowed_suffixes:
+            raise ValueError("CDN host allowlist is not configured")
+
+        host_allowed = any(
+            host == suffix or host.endswith(f".{suffix}")
+            for suffix in allowed_suffixes
+        )
+        if not host_allowed:
+            raise ValueError("cdn_link host is not allowed")
+
+        return value
 
 
 class StartHuntResponse(BaseModel):
