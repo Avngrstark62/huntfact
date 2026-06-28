@@ -1,11 +1,12 @@
 from typing import Any, Dict, List
+import logging
 
 from pydantic import BaseModel, Field
 
 from chroma_client import chroma_client
 from config import settings
 from llm import llm
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 from services.embeddings.embeddings import get_embeddings
 
 logger = get_logger("services.claim_verifier.claim_verifier")
@@ -264,11 +265,25 @@ def _normalize_rows(
 async def verify_claims_with_context(claims: List[str], rag_collection_name: str) -> Dict[str, Any]:
     normalized_claims = _normalize_claims(claims)
     if not normalized_claims:
-        logger.warning("No valid claims provided to claim verifier")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="No valid claims provided to claim verifier",
+            component="services.claim_verifier",
+        )
         return {"rows": []}
 
     if not isinstance(rag_collection_name, str) or not rag_collection_name.strip():
-        logger.warning("No valid rag collection name provided to claim verifier")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="failed",
+            message="No valid RAG collection name provided",
+            component="services.claim_verifier",
+        )
         return {
             "rows": [
                 {
@@ -283,10 +298,14 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
         }
 
     retrieval_queries = await _generate_retrieval_queries(normalized_claims)
-    logger.info(
-        "Generated %s retrieval queries for %s claims",
-        len(retrieval_queries),
-        len(normalized_claims),
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="Generated retrieval queries",
+        component="services.claim_verifier",
+        result_summary={"query_count": len(retrieval_queries), "claim_count": len(normalized_claims)},
     )
 
     chroma = chroma_client.connect()
@@ -299,7 +318,15 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
 
     context_sources = _dedupe_chunks(all_chunks)
     if not context_sources:
-        logger.warning("No RAG chunks matched distance threshold for claim verifier")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="failed",
+            message="No RAG chunks matched threshold",
+            component="services.claim_verifier",
+            result_summary={"query_count": len(retrieval_queries)},
+        )
         return {
             "rows": [
                 {
@@ -411,11 +438,20 @@ Rules:
             },
             ]
 
-    logger.info(
-        "Generating claim verification for %s claims using %s retrieved chunks from collection %s",
-        len(normalized_claims),
-        len(context_sources),
-        rag_collection_name.strip(),
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Generating claim verification with LLM",
+        component="services.claim_verifier",
+        provider="openai",
+        operation="claim_verify",
+        result_summary={
+            "claim_count": len(normalized_claims),
+            "retrieved_chunk_count": len(context_sources),
+            "collection_name": rag_collection_name.strip(),
+        },
     )
     result = await llm.call_with_schema(
         model=settings.llm.reasoning_model,

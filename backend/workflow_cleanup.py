@@ -1,9 +1,10 @@
 import asyncio
+import logging
 import signal
 
 from config import settings
 from db.database import db
-from logging_config import get_logger, setup_logging
+from logging_config import get_logger, log_event, setup_logging
 
 logger = get_logger("workflow_cleanup")
 STALE_PROCESSING_MINUTES = settings.workflow_cleanup.processing_stale_minutes
@@ -30,13 +31,28 @@ def _run_cleanup_cycle() -> tuple[list[int], list[int], int]:
 
 async def main() -> None:
     setup_logging()
-    logger.info("Starting workflow cleanup process...")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="app.lifecycle.started",
+        status="started",
+        message="Starting workflow cleanup process",
+        component="workflow_cleanup",
+    )
 
     loop = asyncio.get_event_loop()
     stop_event = asyncio.Event()
 
     def handle_shutdown(signum, frame) -> None:
-        logger.info("Received signal %s, stopping workflow cleanup...", signum)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.cancelled",
+            status="cancelled",
+            message="Stopping workflow cleanup due to signal",
+            component="workflow_cleanup",
+            signal=signum,
+        )
         stop_event.set()
 
     loop.add_signal_handler(signal.SIGTERM, handle_shutdown, signal.SIGTERM, None)
@@ -46,17 +62,39 @@ async def main() -> None:
         try:
             stale_processing_hunt_ids, stale_queued_hunt_ids, deleted_admissions = _run_cleanup_cycle()
             if stale_processing_hunt_ids or stale_queued_hunt_ids or deleted_admissions:
-                logger.info(
-                    "Cleanup cycle completed: stale_processing_hunts_marked_failed=%s stale_queued_hunts_marked_failed=%s admissions_deleted=%s",
-                    stale_processing_hunt_ids,
-                    stale_queued_hunt_ids,
-                    deleted_admissions,
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.succeeded",
+                    status="succeeded",
+                    message="Workflow cleanup cycle completed",
+                    component="workflow_cleanup",
+                    stale_processing_hunts=stale_processing_hunt_ids,
+                    stale_queued_hunts=stale_queued_hunt_ids,
+                    admissions_deleted=deleted_admissions,
                 )
         except Exception as e:
-            logger.error("Workflow cleanup cycle failed: %s", str(e), exc_info=True)
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="app.lifecycle.failed",
+                status="failed",
+                message="Workflow cleanup cycle failed",
+                component="workflow_cleanup",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
         await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
-    logger.info("Workflow cleanup process stopped")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="app.lifecycle.succeeded",
+        status="cancelled",
+        message="Workflow cleanup process stopped",
+        component="workflow_cleanup",
+    )
 
 
 if __name__ == "__main__":

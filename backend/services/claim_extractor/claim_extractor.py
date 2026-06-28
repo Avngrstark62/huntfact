@@ -1,10 +1,11 @@
 from typing import List
+import logging
 
 from pydantic import BaseModel
 
 from config import settings
 from llm import llm
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 logger = get_logger("services.claim_extractor.claim_extractor")
 
@@ -51,10 +52,27 @@ async def extract_claim_clusters(content: str) -> List[List[str]]:
         List of claim clusters, where each cluster is a list of standalone claims
     """
     if not content:
-        logger.warning("No content to extract claim clusters from")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="No content to extract claim clusters from",
+            component="services.claim_extractor",
+        )
         return []
 
-    logger.info(f"Extracting claim clusters from content ({len(content)} chars)")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Extracting claim clusters",
+        component="services.claim_extractor",
+        provider="openai",
+        operation="claim_cluster_extract",
+        result_summary={"content_chars": len(content)},
+    )
 
     prompt = f"""Extract objective factual claims from the content and group them into verification clusters.
 
@@ -116,8 +134,30 @@ Content:
             schema_model=ClaimClustersResponse,
         )
         normalized_clusters = _normalize_clusters(result.clusters)
-        logger.info(f"Successfully extracted {len(normalized_clusters)} claim clusters")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="succeeded",
+            message="Extracted claim clusters",
+            component="services.claim_extractor",
+            provider="openai",
+            operation="claim_cluster_extract",
+            result_summary={"cluster_count": len(normalized_clusters)},
+        )
         return normalized_clusters
     except Exception as e:
-        logger.error(f"Failed to extract claim clusters: {str(e)}", exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Failed to extract claim clusters",
+            component="services.claim_extractor",
+            provider="openai",
+            operation="claim_cluster_extract",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         raise

@@ -5,9 +5,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from config import settings
 from typing import Any, Generator
+import logging
+
+from logging_config import get_logger, log_event, sanitize_url
 
 Base = declarative_base()
 DEFAULT_USER_HUNTS_LIMIT = 30
+logger = get_logger("db.database")
 
 
 class Database:
@@ -134,7 +138,15 @@ class Database:
 
     def get_hunt_by_video_link(self, session: Session, video_link: str):
         from db.models.hunt import Hunt
-
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.started",
+            status="started",
+            message="Querying hunt by video_link",
+            component="db",
+            video_link=sanitize_url(video_link),
+        )
         return session.query(Hunt).filter(Hunt.video_link == video_link).first()
 
     def create_workflow_admission(
@@ -152,14 +164,56 @@ class Database:
             hunt_id=hunt_id,
         )
         session.add(row)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.started",
+            status="started",
+            message="Creating workflow admission",
+            component="db",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            video_link=sanitize_url(video_link),
+        )
         try:
             session.commit()
         except IntegrityError:
             session.rollback()
+            log_event(
+                logger,
+                level=logging.WARNING,
+                event="db.write.failed",
+                status="skipped",
+                message="Workflow admission already exists",
+                component="db",
+                workflow_id=workflow_id,
+                hunt_id=hunt_id,
+            )
             return False
         except:
             session.rollback()
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="db.write.failed",
+                status="failed",
+                message="Creating workflow admission failed",
+                component="db",
+                workflow_id=workflow_id,
+                hunt_id=hunt_id,
+                exc_info=True,
+            )
             raise
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded",
+            message="Workflow admission created",
+            component="db",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+        )
         return True
 
     def delete_workflow_admission(self, session: Session, workflow_id: str) -> bool:
@@ -297,6 +351,15 @@ class Database:
 
         hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
         if hunt:
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="db.write.started",
+                status="started",
+                message="Updating hunt result",
+                component="db",
+                hunt_id=hunt_id,
+            )
             hunt.result = result
             hunt.title = title
             hunt.summary = summary
@@ -308,8 +371,27 @@ class Database:
                 session.commit()
             except:
                 session.rollback()
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="db.write.failed",
+                    status="failed",
+                    message="Updating hunt result failed",
+                    component="db",
+                    hunt_id=hunt_id,
+                    exc_info=True,
+                )
                 raise
             session.refresh(hunt)
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="db.write.succeeded",
+                status="succeeded",
+                message="Updated hunt result",
+                component="db",
+                hunt_id=hunt_id,
+            )
             return hunt
         return None
 
@@ -335,8 +417,29 @@ class Database:
             session.commit()
         except:
             session.rollback()
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="db.write.failed",
+                status="failed",
+                message="Updating hunt status failed",
+                component="db",
+                hunt_id=hunt_id,
+                status_value=status_value,
+                exc_info=True,
+            )
             raise
         session.refresh(hunt)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded",
+            message="Updated hunt status",
+            component="db",
+            hunt_id=hunt_id,
+            status_value=status_value,
+        )
         return hunt
 
     def update_hunt_metadata(

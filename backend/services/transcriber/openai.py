@@ -5,12 +5,13 @@ Handles audio bytes and returns transcribed text.
 
 import asyncio
 import io
+import logging
 from typing import Optional
 
 from openai import OpenAI, OpenAIError
 
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 logger = get_logger("services.transcriber.transcriber")
 
@@ -32,12 +33,30 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
     """
     if not audio_bytes:
         error_msg = "audio_bytes cannot be empty"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message=error_msg,
+            component="services.transcriber.openai",
+            provider="openai",
+            operation="transcribe",
+        )
         raise ValueError(error_msg)
 
     if not fmt or fmt not in ("aac", "mp3"):
         error_msg = f"Invalid audio format: {fmt}. Must be 'aac' or 'mp3'"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message=error_msg,
+            component="services.transcriber.openai",
+            provider="openai",
+            operation="transcribe",
+        )
         raise ValueError(error_msg)
 
     try:
@@ -47,7 +66,17 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = f"audio.{ext}"
 
-        logger.info(f"Starting transcription for {ext} audio ({len(audio_bytes)} bytes)")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.started",
+            status="started",
+            message="Starting OpenAI transcription",
+            component="services.transcriber.openai",
+            provider="openai",
+            operation="transcribe",
+            result_summary={"audio_bytes": len(audio_bytes), "format": ext},
+        )
 
         # Initialize client with API key from config
         client = OpenAI(api_key=settings.openai.api_key)
@@ -59,17 +88,61 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
         )
 
         result = transcript.text
-        logger.info(f"Transcription completed successfully ({len(result)} chars)")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="succeeded",
+            message="OpenAI transcription completed",
+            component="services.transcriber.openai",
+            provider="openai",
+            operation="transcribe",
+            result_summary={"transcript_chars": len(result)},
+        )
         return result
 
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="provider.request.failed",
+            status="failed",
+            message="OpenAI transcription validation error",
+            component="services.transcriber.openai",
+            provider="openai",
+            operation="transcribe",
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         raise
     except OpenAIError as e:
         error_msg = f"OpenAI API error: {type(e).__name__}: {str(e)}"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="OpenAI API error",
+            component="services.transcriber.openai",
+            provider="openai",
+            operation="transcribe",
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         raise
     except Exception as e:
         error_msg = f"Unexpected error during transcription: {type(e).__name__}: {str(e)}"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Unexpected OpenAI transcription error",
+            component="services.transcriber.openai",
+            provider="openai",
+            operation="transcribe",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         raise

@@ -1,8 +1,10 @@
 import asyncio
+import logging
 import signal
+import uuid
 
 from pydantic import ValidationError
-from logging_config import get_logger, setup_logging
+from logging_config import get_logger, log_event, setup_logging
 
 from rmq.connection import rabbitmq
 from rmq.consumer import start_workflow_consumer
@@ -33,19 +35,74 @@ logger = get_logger("workflow_orchestrator")
 TRANSCRIPTION_CORRECT = "TRANSCRIPTION_CORRECT"
 
 
-async def _run_rpc_step(step: str, priority: int, payload: dict) -> tuple[dict | None, str | None]:
+async def _run_rpc_step(
+    step: str,
+    priority: int,
+    payload: dict,
+    context: dict | None = None,
+) -> tuple[dict | None, str | None]:
+    task_context = dict(context or {})
+    task_id = str(uuid.uuid4())
+    task_context["task_id"] = task_id
+    task_context["step"] = step
+    effective_payload = dict(payload)
+    effective_payload["context"] = task_context
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.started",
+        status="started",
+        message="Starting RPC task step",
+        component="orchestrator",
+        workflow_id=task_context.get("workflow_id"),
+        hunt_id=task_context.get("hunt_id"),
+        request_id=task_context.get("request_id"),
+        task_id=task_id,
+        step=step,
+        step_priority=priority,
+    )
     try:
         response = await publish_task_rpc(
             TaskMessage(
                 step=step,
                 priority=priority,
-                payload=payload,
+                payload=effective_payload,
             )
         )
     except Exception as e:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="RPC task step failed before response",
+            component="orchestrator",
+            workflow_id=task_context.get("workflow_id"),
+            hunt_id=task_context.get("hunt_id"),
+            request_id=task_context.get("request_id"),
+            task_id=task_id,
+            step=step,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         return None, f"{step} RPC failed: {str(e)}"
 
     if isinstance(response, TaskRpcErrorResponse):
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="RPC task returned error response",
+            component="orchestrator",
+            workflow_id=task_context.get("workflow_id"),
+            hunt_id=task_context.get("hunt_id"),
+            request_id=task_context.get("request_id"),
+            task_id=task_id,
+            step=step,
+            error_message=response.error,
+        )
         return None, f"{step} failed: {response.error}"
     if not isinstance(response, TaskRpcSuccessResponse):
         return None, f"{step} failed: invalid RPC response type"
@@ -56,6 +113,19 @@ async def _run_rpc_step(step: str, priority: int, payload: dict) -> tuple[dict |
         validated_result = validate_task_step_result(step, response.result)
     except Exception as e:
         return None, f"{step} failed: invalid RPC result schema ({str(e)})"
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="RPC task step completed",
+        component="orchestrator",
+        workflow_id=task_context.get("workflow_id"),
+        hunt_id=task_context.get("hunt_id"),
+        request_id=task_context.get("request_id"),
+        task_id=task_id,
+        step=step,
+    )
     return validated_result, None
 
 
@@ -72,7 +142,19 @@ def _mark_hunt_failed(hunt_id: int | None, step: str, error: Exception) -> None:
             f"step={step}; error={str(error)}",
         )
     except Exception as status_error:
-        logger.error("Failed to update hunt failure status: %s", status_error, exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="db.write.failed",
+            status="failed",
+            message="Failed to update hunt failure status",
+            component="orchestrator",
+            hunt_id=hunt_id,
+            step=step,
+            error_type=type(status_error).__name__,
+            error_message=str(status_error),
+            exc_info=True,
+        )
     finally:
         session.close()
 
@@ -90,7 +172,18 @@ def _mark_hunt_processing(hunt_id: int | None) -> None:
             None,
         )
     except Exception as status_error:
-        logger.error("Failed to update hunt processing status: %s", status_error, exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="db.write.failed",
+            status="failed",
+            message="Failed to update hunt processing status",
+            component="orchestrator",
+            hunt_id=hunt_id,
+            error_type=type(status_error).__name__,
+            error_message=str(status_error),
+            exc_info=True,
+        )
     finally:
         session.close()
 
@@ -107,12 +200,17 @@ def _handle_expected_workflow_failure(
         step,
         RuntimeError(error_message),
     )
-    logger.error(
-        "Workflow failed at expected step: workflow_id=%s hunt_id=%s step=%s error=%s",
-        workflow_id,
-        hunt_id,
-        step,
-        error_message,
+    log_event(
+        logger,
+        level=logging.ERROR,
+        event="workflow.failed",
+        status="failed",
+        message="Workflow failed at expected step",
+        component="orchestrator",
+        workflow_id=workflow_id,
+        hunt_id=hunt_id,
+        step=step,
+        error_message=error_message,
     )
 
 
@@ -125,12 +223,17 @@ def _handle_expected_input_failure(
     clear_workflow_admission(workflow_id)
     if isinstance(hunt_id, int):
         _mark_hunt_failed(hunt_id, step, RuntimeError(error_message))
-    logger.error(
-        "Workflow rejected at input validation: workflow_id=%s hunt_id=%s step=%s error=%s",
-        workflow_id,
-        hunt_id,
-        step,
-        error_message,
+    log_event(
+        logger,
+        level=logging.ERROR,
+        event="workflow.failed",
+        status="failed",
+        message="Workflow rejected at input validation",
+        component="orchestrator",
+        workflow_id=workflow_id,
+        hunt_id=hunt_id,
+        step=step,
+        error_message=error_message,
     )
 
 
@@ -144,16 +247,19 @@ def _transcribe_payload(extract_result: dict, service: str) -> dict:
 
 async def _run_parallel_transcription(
     extract_result: dict,
+    workflow_context: dict,
 ) -> tuple[dict | None, str | None, dict | None, str | None]:
     openai_transcribe_task = _run_rpc_step(
         step=TRANSCRIBE,
         priority=2,
         payload=_transcribe_payload(extract_result, "openai"),
+        context=workflow_context,
     )
     assemblyai_transcribe_task = _run_rpc_step(
         step=TRANSCRIBE,
         priority=2,
         payload=_transcribe_payload(extract_result, "assemblyai"),
+        context=workflow_context,
     )
     (openai_result, openai_error), (assemblyai_result, assemblyai_error) = await asyncio.gather(
         openai_transcribe_task,
@@ -182,12 +288,13 @@ def _build_no_verdict_table_for_cluster(cluster: list, explanation: str) -> dict
     return {"rows": rows}
 
 
-async def _run_cluster_verification_loop(cluster: list) -> dict:
+async def _run_cluster_verification_loop(cluster: list, workflow_context: dict) -> dict:
     """Run URL fetcher -> web scraper -> rag storage -> claim verifier for one cluster."""
     url_fetcher_result, url_fetcher_error = await _run_rpc_step(
         step=URL_FETCHER,
         priority=6,
         payload={"claims": cluster},
+        context=workflow_context,
     )
     if url_fetcher_error:
         raise RuntimeError(url_fetcher_error)
@@ -199,15 +306,21 @@ async def _run_cluster_verification_loop(cluster: list) -> dict:
             "claims": cluster,
             "url_fetcher_results": url_fetcher_result,
         },
+        context=workflow_context,
     )
     if web_scraper_error:
         raise RuntimeError(web_scraper_error)
     context = web_scraper_result.get("context") or {}
     context_sources = context.get("sources") if isinstance(context, dict) else None
     if not isinstance(context_sources, list) or not context_sources:
-        logger.warning(
-            "No context sources for cluster, returning fallback no-verdict rows: claims=%s",
-            len(cluster),
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="failed",
+            message="No context sources for cluster; using fallback rows",
+            component="orchestrator",
+            result_summary={"claim_count": len(cluster)},
         )
         return _build_no_verdict_table_for_cluster(
             cluster,
@@ -217,7 +330,8 @@ async def _run_cluster_verification_loop(cluster: list) -> dict:
     rag_storage_result, rag_storage_error = await _run_rpc_step(
         step=RAG_STORAGE,
         priority=8,
-        payload={"context": context},
+        payload={"sources": context_sources},
+        context=workflow_context,
     )
     if rag_storage_error:
         raise RuntimeError(rag_storage_error)
@@ -229,6 +343,7 @@ async def _run_cluster_verification_loop(cluster: list) -> dict:
             "claims": cluster,
             "rag_reference": rag_storage_result.get("rag_reference"),
         },
+        context=workflow_context,
     )
     if claim_verifier_error:
         raise RuntimeError(claim_verifier_error)
@@ -247,25 +362,36 @@ def _merge_cluster_tables(cluster_tables: list[dict]) -> dict:
     return {"rows": merged_rows}
 
 
-async def _run_cluster_fanout_and_merge(workflow_id: str, clusters: list) -> dict:
+async def _run_cluster_fanout_and_merge(workflow_id: str, clusters: list, workflow_context: dict) -> dict:
     valid_clusters = [cluster for cluster in clusters if isinstance(cluster, list) and cluster]
-    logger.info(
-        "Starting cluster fanout: workflow_id=%s clusters=%s",
-        workflow_id,
-        len(valid_clusters),
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.started",
+        status="started",
+        message="Starting cluster fanout",
+        component="orchestrator",
+        workflow_id=workflow_id,
+        result_summary={"cluster_count": len(valid_clusters)},
     )
 
-    loop_tasks = [_run_cluster_verification_loop(cluster) for cluster in valid_clusters]
+    loop_tasks = [_run_cluster_verification_loop(cluster, workflow_context) for cluster in valid_clusters]
     cluster_results = await asyncio.gather(*loop_tasks, return_exceptions=True)
     cluster_tables = []
 
     for idx, result in enumerate(cluster_results):
         if isinstance(result, Exception):
-            logger.error(
-                "Cluster verification failed, using fallback table: workflow_id=%s cluster_index=%s error=%s",
-                workflow_id,
-                idx,
-                str(result),
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="task.failed",
+                status="failed",
+                message="Cluster verification failed; using fallback table",
+                component="orchestrator",
+                workflow_id=workflow_id,
+                cluster_index=idx,
+                error_type=type(result).__name__,
+                error_message=str(result),
                 exc_info=True,
             )
             cluster = valid_clusters[idx] if idx < len(valid_clusters) else []
@@ -278,16 +404,26 @@ async def _run_cluster_fanout_and_merge(workflow_id: str, clusters: list) -> dic
             continue
         cluster_tables.append(result)
 
-    logger.info(
-        "Cluster fanout completed: workflow_id=%s clusters=%s",
-        workflow_id,
-        cluster_tables,
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="Cluster fanout completed",
+        component="orchestrator",
+        workflow_id=workflow_id,
+        result_summary={"cluster_count": len(cluster_tables)},
     )
     merged_table = _merge_cluster_tables(cluster_tables)
-    logger.info(
-        "Cluster fan-in completed: workflow_id=%s rows=%s",
-        workflow_id,
-        len(merged_table.get("rows") or []),
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="Cluster fan-in completed",
+        component="orchestrator",
+        workflow_id=workflow_id,
+        result_summary={"row_count": len(merged_table.get("rows") or [])},
     )
     return merged_table
 
@@ -296,6 +432,7 @@ async def handle_workflow_message(msg: dict) -> None:
     hunt_id = None
     current_step = "WORKFLOW_INIT"
     payload = {}
+    workflow_context: dict = {}
 
     try:
         current_step = "VALIDATE_WORKFLOW_MESSAGE"
@@ -312,13 +449,23 @@ async def handle_workflow_message(msg: dict) -> None:
 
         workflow_id = workflow.workflow_id
         payload = workflow.payload
+        payload_context = payload.get("context")
+        if isinstance(payload_context, dict):
+            workflow_context = dict(payload_context)
+        workflow_context["workflow_id"] = workflow_id
         cdn_link = payload.get("cdn_link")
         hunt_id = payload.get("hunt_id")
-        logger.info(
-            "Received workflow message: workflow_id=%s cdn_link=%s hunt_id=%s",
-            workflow_id,
-            cdn_link,
-            hunt_id,
+        workflow_context["hunt_id"] = hunt_id
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="workflow.started",
+            status="started",
+            message="Workflow message received",
+            component="orchestrator",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            request_id=workflow_context.get("request_id"),
         )
 
         if not isinstance(hunt_id, int):
@@ -337,12 +484,12 @@ async def handle_workflow_message(msg: dict) -> None:
             step=EXTRACT_AUDIO,
             priority=1,
             payload={"cdn_link": cdn_link},
+            context=workflow_context,
         )
         if extract_error:
             _handle_expected_workflow_failure(workflow_id, hunt_id, current_step, extract_error)
             return
 
-        logger.info("EXTRACT_AUDIO completed")
 
         current_step = TRANSCRIBE
         (
@@ -350,7 +497,7 @@ async def handle_workflow_message(msg: dict) -> None:
             openai_transcribe_error,
             assemblyai_transcribe_result,
             assemblyai_transcribe_error,
-        ) = await _run_parallel_transcription(extract_result)
+        ) = await _run_parallel_transcription(extract_result, workflow_context)
         if openai_transcribe_error:
             _handle_expected_workflow_failure(
                 workflow_id,
@@ -367,11 +514,6 @@ async def handle_workflow_message(msg: dict) -> None:
                 assemblyai_transcribe_error,
             )
             return
-        logger.info(
-            "Parallel TRANSCRIBE completed: openai_chars=%s assemblyai_chars=%s",
-            len(openai_transcribe_result.get("transcript_text") or ""),
-            len(assemblyai_transcribe_result.get("transcript_text") or ""),
-        )
 
         current_step = TRANSCRIPTION_CORRECT
         correction_result, correction_error = await _run_rpc_step(
@@ -383,14 +525,11 @@ async def handle_workflow_message(msg: dict) -> None:
                     assemblyai_transcribe_result.get("transcript_text"),
                 ],
             },
+            context=workflow_context,
         )
         if correction_error:
             _handle_expected_workflow_failure(workflow_id, hunt_id, current_step, correction_error)
             return
-        logger.info(
-            "TRANSCRIPTION_CORRECT completed: corrected_chars=%s",
-            len(correction_result.get("corrected_transcript") or ""),
-        )
 
         current_step = TRANSLATE
         translate_result, translate_error = await _run_rpc_step(
@@ -399,11 +538,11 @@ async def handle_workflow_message(msg: dict) -> None:
             payload={
                 "transcript_text": correction_result.get("corrected_transcript"),
             },
+            context=workflow_context,
         )
         if translate_error:
             _handle_expected_workflow_failure(workflow_id, hunt_id, current_step, translate_error)
             return
-        logger.info(f"TRANSLATE completed: {translate_result}")
 
         current_step = EXTRACT_CLAIM_CLUSTERS
         claim_extract_result, claim_extract_error = await _run_rpc_step(
@@ -412,11 +551,11 @@ async def handle_workflow_message(msg: dict) -> None:
             payload={
                 "content": translate_result.get("translated_text"),
             },
+            context=workflow_context,
         )
         if claim_extract_error:
             _handle_expected_workflow_failure(workflow_id, hunt_id, current_step, claim_extract_error)
             return
-        logger.info(f"EXTRACT_CLAIM_CLUSTERS completed: {claim_extract_result}")
 
         clusters = claim_extract_result.get("clusters") or []
         if not isinstance(clusters, list):
@@ -427,7 +566,7 @@ async def handle_workflow_message(msg: dict) -> None:
                 "EXTRACT_CLAIM_CLUSTERS returned invalid clusters format",
             )
             return
-        merged_table = await _run_cluster_fanout_and_merge(workflow_id, clusters)
+        merged_table = await _run_cluster_fanout_and_merge(workflow_id, clusters, workflow_context)
 
         current_step = SAVE_RESULT_TO_DB
         _, save_error = await _run_rpc_step(
@@ -437,27 +576,26 @@ async def handle_workflow_message(msg: dict) -> None:
                 "hunt_id": hunt_id,
                 "table": merged_table,
             },
+            context=workflow_context,
         )
         if save_error:
             _handle_expected_workflow_failure(workflow_id, hunt_id, current_step, save_error)
             return
 
-        logger.info(
-            "Workflow completed at SAVE_RESULT_TO_DB: workflow_id=%s hunt_id=%s transcript_chars=%s translated_chars=%s clusters=%s merged_rows=%s",
-            workflow_id,
-            hunt_id,
-            len(correction_result.get("corrected_transcript") or ""),
-            len(translate_result.get("translated_text") or ""),
-            len(claim_extract_result.get("clusters") or []),
-            len(merged_table.get("rows") or []),
-        )
     except Exception as e:
-        logger.error(
-            "Unexpected workflow exception: workflow_id=%s hunt_id=%s step=%s error=%s",
-            workflow_id,
-            hunt_id,
-            current_step,
-            str(e),
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="workflow.failed",
+            status="failed",
+            message="Unexpected workflow exception",
+            component="orchestrator",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            request_id=workflow_context.get("request_id"),
+            step=current_step,
+            error_type=type(e).__name__,
+            error_message=str(e),
             exc_info=True,
         )
         return
@@ -472,36 +610,50 @@ async def handle_workflow_message(msg: dict) -> None:
                 "hunt_id": hunt_id,
                 "fcm_token": payload.get("fcm_token"),
             },
+            context=workflow_context,
         )
         if notify_error:
             raise RuntimeError(notify_error)
     except Exception as e:
         notify_status = "failed"
-        logger.error(
-            "Workflow completed but notification failed: workflow_id=%s hunt_id=%s error=%s",
-            workflow_id,
-            hunt_id,
-            str(e),
-            exc_info=True,
-        )
-
-    logger.info(
-        "Workflow processing finished: workflow_id=%s hunt_id=%s completion=completed notify_status=%s",
-        workflow_id,
-        hunt_id,
-        notify_status,
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="workflow.completed",
+        status="succeeded" if notify_status == "sent" else "failed",
+        message="Workflow processing finished",
+        component="orchestrator",
+        workflow_id=workflow_id,
+        hunt_id=hunt_id,
+        request_id=workflow_context.get("request_id"),
+        notify_status=notify_status,
     )
 
 
 async def main() -> None:
     setup_logging()
-    logger.info("Starting workflow orchestrator...")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="app.lifecycle.started",
+        status="started",
+        message="Starting workflow orchestrator",
+        component="orchestrator",
+    )
 
     loop = asyncio.get_event_loop()
     consumer_task = None
 
     def handle_shutdown(signum, frame) -> None:
-        logger.info("Received signal %s, shutting down workflow orchestrator...", signum)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.cancelled",
+            status="cancelled",
+            message="Shutting down workflow orchestrator due to signal",
+            component="orchestrator",
+            signal=signum,
+        )
         if consumer_task and not consumer_task.done():
             consumer_task.cancel()
 
@@ -514,14 +666,45 @@ async def main() -> None:
         )
         await consumer_task
     except asyncio.CancelledError:
-        logger.info("Workflow consumer cancelled")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.cancelled",
+            status="cancelled",
+            message="Workflow consumer cancelled",
+            component="orchestrator",
+        )
     finally:
-        logger.info("Closing RabbitMQ connection...")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.cancelled",
+            status="cancelled",
+            message="Closing orchestrator RabbitMQ connection",
+            component="orchestrator",
+        )
         try:
             await rabbitmq.close()
         except Exception as e:
-            logger.error("Error closing RabbitMQ: %s", e, exc_info=True)
-        logger.info("Workflow orchestrator stopped")
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="app.lifecycle.failed",
+                status="failed",
+                message="Error closing orchestrator RabbitMQ",
+                component="orchestrator",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.succeeded",
+            status="cancelled",
+            message="Workflow orchestrator stopped",
+            component="orchestrator",
+        )
 
 
 if __name__ == "__main__":

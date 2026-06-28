@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from logging_config import get_logger
+from logging_config import get_logger, hash_user_id, log_event, sanitize_url
 from schemas import (
     ErrorResponse,
     HealthResponse,
@@ -24,15 +26,6 @@ COMMON_ERROR_RESPONSES = {
     422: {"model": ErrorResponse},
     500: {"model": ErrorResponse},
 }
-
-
-def _mask_user_id(user_id: str) -> str:
-    value = (user_id or "").strip()
-    if not value:
-        return "<empty>"
-    if len(value) <= 8:
-        return f"{value[:2]}***{value[-2:]}"
-    return f"{value[:4]}***{value[-3:]}"
 
 
 @router.get(
@@ -74,6 +67,7 @@ def get_health() -> HealthResponse:
 )
 async def start_hunt(
     request: StartHuntRequest,
+    http_request: Request,
     session: Session = Depends(db.get_db),
     _: None = Depends(check_health_dependency),
     authenticated_user: AuthenticatedUser = Depends(get_authenticated_user),
@@ -87,13 +81,23 @@ async def start_hunt(
     Returns whether workflow publish was accepted.
     """
     try:
-        logger.info(
-            "Starting hunt for user_id=%s platform=%s has_thumbnail=%s has_caption=%s has_creator_handle=%s",
-            _mask_user_id(authenticated_user.sub),
-            request.platform,
-            bool(request.thumbnail_url),
-            bool(request.caption),
-            bool(request.creator_handle),
+        request_id = getattr(http_request.state, "request_id", None)
+        user_id_hash = hash_user_id(authenticated_user.sub)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="workflow.admission.started",
+            status="started",
+            message="Starting hunt admission",
+            component="api",
+            request_id=request_id,
+            user_id_hash=user_id_hash,
+            platform=request.platform,
+            has_thumbnail=bool(request.thumbnail_url),
+            has_caption=bool(request.caption),
+            has_creator_handle=bool(request.creator_handle),
+            video_link=sanitize_url(str(request.video_link)),
+            cdn_link=sanitize_url(str(request.cdn_link)),
         )
 
         hunt_limit_error = enforce_user_hunt_limit(session, authenticated_user.sub)
@@ -116,9 +120,27 @@ async def start_hunt(
             session.rollback()
             raise
 
-        logger.info("Created or reused hunt with id: %s", existing_hunt.id)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded",
+            message="Created or reused hunt",
+            component="api",
+            request_id=request_id,
+            hunt_id=existing_hunt.id,
+            user_id_hash=user_id_hash,
+        )
         if existing_hunt.status == HUNT_STATUS_COMPLETED:
-            await publish_notify_best_effort(existing_hunt.id, request.fcm_token)
+            await publish_notify_best_effort(
+                existing_hunt.id,
+                request.fcm_token,
+                context={
+                    "request_id": request_id,
+                    "user_id_hash": user_id_hash,
+                    "hunt_id": existing_hunt.id,
+                },
+            )
             return StartHuntResponse(
                 success=True,
                 message="Hunt started successfully",
@@ -132,12 +154,24 @@ async def start_hunt(
                 video_link=video_link,
                 cdn_link=str(request.cdn_link),
                 fcm_token=request.fcm_token,
+                context={
+                    "request_id": request_id,
+                    "user_id_hash": user_id_hash,
+                    "hunt_id": existing_hunt.id,
+                },
             )
         except Exception as publish_error:
-            logger.error(
-                "Workflow publish failed for hunt_id=%s: %s",
-                existing_hunt.id,
-                str(publish_error),
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="workflow.admission.failed",
+                status="failed",
+                message="Workflow publish failed",
+                component="api",
+                request_id=request_id,
+                hunt_id=existing_hunt.id,
+                error_type=type(publish_error).__name__,
+                error_message=str(publish_error),
                 exc_info=True,
             )
             return StartHuntResponse(
@@ -155,7 +189,19 @@ async def start_hunt(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in start_hunt: {str(e)}", exc_info=settings.app.debug)
+        request_id = getattr(http_request.state, "request_id", None)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="workflow.admission.failed",
+            status="failed",
+            message="Unexpected error in start_hunt",
+            component="api",
+            request_id=request_id,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=settings.app.debug,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal Server Error",
@@ -174,6 +220,7 @@ async def start_hunt(
 )
 async def get_hunt(
     hunt_id: int,
+    http_request: Request,
     session: Session = Depends(db.get_db),
     _: None = Depends(check_health_dependency),
     authenticated_user: AuthenticatedUser = Depends(get_authenticated_user),
@@ -182,10 +229,16 @@ async def get_hunt(
     Fetch one hunt by id.
     """
     try:
-        logger.info(
-            "Fetching hunt for user_id=%s hunt_id=%s",
-            _mask_user_id(authenticated_user.sub),
-            hunt_id,
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.started",
+            status="started",
+            message="Fetching hunt",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            hunt_id=hunt_id,
+            user_id_hash=hash_user_id(authenticated_user.sub),
         )
         hunt = db.get_hunt_for_user(session, hunt_id, authenticated_user.sub)
         if hunt is None:
@@ -214,7 +267,19 @@ async def get_hunt(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in get_hunt: {str(e)}", exc_info=settings.app.debug)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="db.query.failed",
+            status="failed",
+            message="Unexpected error in get_hunt",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            hunt_id=hunt_id,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=settings.app.debug,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal Server Error",
@@ -231,6 +296,7 @@ async def get_hunt(
     },
 )
 async def get_user_hunts(
+    http_request: Request,
     session: Session = Depends(db.get_db),
     _: None = Depends(check_health_dependency),
     authenticated_user: AuthenticatedUser = Depends(get_authenticated_user),
@@ -239,7 +305,16 @@ async def get_user_hunts(
     Fetch all hunts associated with the authenticated user.
     """
     try:
-        logger.info("Fetching hunts for user_id=%s", _mask_user_id(authenticated_user.sub))
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.started",
+            status="started",
+            message="Fetching hunts for user",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            user_id_hash=hash_user_id(authenticated_user.sub),
+        )
         hunts = db.get_hunts_by_user_id(session, authenticated_user.sub)
         responses: list[HuntResponse] = []
         for hunt in hunts:
@@ -264,7 +339,18 @@ async def get_user_hunts(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in get_user_hunts: {str(e)}", exc_info=settings.app.debug)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="db.query.failed",
+            status="failed",
+            message="Unexpected error in get_user_hunts",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=settings.app.debug,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal Server Error",

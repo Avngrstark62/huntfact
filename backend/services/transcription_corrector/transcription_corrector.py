@@ -1,10 +1,11 @@
 from typing import List
+import logging
 
 from pydantic import BaseModel
 
 from config import settings
 from llm import llm
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 logger = get_logger("services.transcription_corrector.transcription_corrector")
 
@@ -48,12 +49,26 @@ async def correct_transcription(transcripts: List[str]) -> str:
     normalized_transcripts = _normalize_transcripts(transcripts)
 
     if not normalized_transcripts:
-        logger.error("No transcript candidates provided")
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="No transcript candidates provided",
+            component="services.transcription_corrector",
+        )
         raise ValueError("No transcript candidates provided")
 
-    logger.info(
-        "Correcting transcription from %s candidates",
-        len(normalized_transcripts),
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Correcting transcription",
+        component="services.transcription_corrector",
+        provider="openai",
+        operation="transcription_correct",
+        result_summary={"candidate_count": len(normalized_transcripts)},
     )
 
     candidates_text = "\n\n".join(
@@ -80,8 +95,27 @@ async def correct_transcription(transcripts: List[str]) -> str:
 
     corrected_transcript = (result.corrected_transcript or "").strip()
     if not corrected_transcript:
-        logger.error("Reasoning model returned an empty corrected transcript")
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Reasoning model returned empty corrected transcript",
+            component="services.transcription_corrector",
+            provider="openai",
+            operation="transcription_correct",
+        )
         raise ValueError("Reasoning model returned an empty corrected transcript")
 
-    logger.info("Transcription correction completed successfully")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.succeeded",
+        status="succeeded",
+        message="Transcription correction completed",
+        component="services.transcription_corrector",
+        provider="openai",
+        operation="transcription_correct",
+        result_summary={"output_chars": len(corrected_transcript)},
+    )
     return corrected_transcript

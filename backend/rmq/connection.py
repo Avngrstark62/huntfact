@@ -1,6 +1,8 @@
 import aio_pika
 import asyncio
+import logging
 from logging_config import get_logger
+from logging_config import log_event
 from config import settings
 
 logger = get_logger("rmq.connection")
@@ -24,7 +26,23 @@ class RabbitMQClient:
             if self.connection and not self.connection.is_closed:
                 return self.connection
 
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="rmq.connection.started",
+                status="started",
+                message="Connecting to RabbitMQ",
+                component="rmq.connection",
+            )
             self.connection = await aio_pika.connect_robust(settings.rabbitmq.url)
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="rmq.connection.succeeded",
+                status="succeeded",
+                message="Connected to RabbitMQ",
+                component="rmq.connection",
+            )
             return self.connection
 
     async def get_channel(self, prefetch_count: int = None):
@@ -41,6 +59,14 @@ class RabbitMQClient:
     async def close(self):
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="rmq.connection.succeeded",
+                status="cancelled",
+                message="RabbitMQ connection closed",
+                component="rmq.connection",
+            )
 
 
 rabbitmq = RabbitMQClient()

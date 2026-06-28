@@ -1,5 +1,6 @@
 from typing import Optional
-from logging_config import get_logger
+import logging
+from logging_config import get_logger, log_event
 from config import settings
 from llm import llm
 from pydantic import BaseModel
@@ -22,10 +23,27 @@ async def translate_text(text: str) -> str:
         Translated English text
     """
     if not text:
-        logger.warning("No text to translate")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="No text to translate",
+            component="services.translator",
+        )
         return text
 
-    logger.info(f"Translating text to English ({len(text)} chars)")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Translating text to English",
+        component="services.translator",
+        provider="openai",
+        operation="translate",
+        result_summary={"input_chars": len(text)},
+    )
 
     prompt = f"""Your task is to translate the given text into English while preserving the original meaning, tone, and intent as faithfully as possible.
 
@@ -76,8 +94,30 @@ Translate this text to English and return only the translated text:
 
         translated_text: Optional[str] = result.translated_text
         final_text = (translated_text or "").strip()
-        logger.info(f"Successfully translated text ({len(final_text)} chars)")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="succeeded",
+            message="Text translated successfully",
+            component="services.translator",
+            provider="openai",
+            operation="translate",
+            result_summary={"output_chars": len(final_text)},
+        )
         return final_text
     except Exception as e:
-        logger.error(f"Failed to translate text: {str(e)}", exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Failed to translate text",
+            component="services.translator",
+            provider="openai",
+            operation="translate",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         raise

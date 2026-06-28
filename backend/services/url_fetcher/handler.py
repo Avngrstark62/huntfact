@@ -1,6 +1,7 @@
 from typing import Optional
+import logging
 
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 from services.url_fetcher.url_fetcher import fetch_urls_for_claims
 
 logger = get_logger("services.url_fetcher.handler")
@@ -16,19 +17,68 @@ async def handle_url_fetcher(payload: dict | None = None) -> Optional[dict]:
     Returns:
         Dict with url fetch results and error.
     """
-    logger.info("Starting URL fetcher service")
+    context = ((payload or {}).get("context") if isinstance(payload, dict) else {}) or {}
+    context = context if isinstance(context, dict) else {}
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.started",
+        status="started",
+        message="Starting URL fetcher service",
+        component="services.url_fetcher.handler",
+        workflow_id=context.get("workflow_id"),
+        hunt_id=context.get("hunt_id"),
+        request_id=context.get("request_id"),
+        task_id=context.get("task_id"),
+        step=context.get("step"),
+    )
 
     claims = (payload or {}).get("claims")
     if not isinstance(claims, list):
-        logger.error("No claims list found in payload")
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="No claims list found in payload",
+            component="services.url_fetcher.handler",
+            workflow_id=context.get("workflow_id"),
+            hunt_id=context.get("hunt_id"),
+            request_id=context.get("request_id"),
+            task_id=context.get("task_id"),
+        )
         return {"results": None, "error": "No claims list found in payload"}
-
-    logger.info(f"Running URL fetcher for {len(claims)} claims")
 
     try:
         results = await fetch_urls_for_claims(claims)
-        logger.info(f"URL fetcher completed with {len(results)} query results")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="task.succeeded",
+            status="succeeded",
+            message="URL fetcher completed",
+            component="services.url_fetcher.handler",
+            workflow_id=context.get("workflow_id"),
+            hunt_id=context.get("hunt_id"),
+            request_id=context.get("request_id"),
+            task_id=context.get("task_id"),
+            result_summary={"query_result_count": len(results)},
+        )
         return {"results": results, "error": None}
     except Exception as e:
-        logger.error(f"URL fetcher failed: {str(e)}", exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="URL fetcher failed",
+            component="services.url_fetcher.handler",
+            workflow_id=context.get("workflow_id"),
+            hunt_id=context.get("hunt_id"),
+            request_id=context.get("request_id"),
+            task_id=context.get("task_id"),
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         return {"results": None, "error": str(e)}

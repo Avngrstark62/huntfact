@@ -1,11 +1,12 @@
 import asyncio
 from datetime import datetime, UTC
 import json
+import logging
 
 import aio_pika
 from pydantic import ValidationError
 
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 from rmq.connection import rabbitmq
 from config import settings
@@ -120,19 +121,35 @@ async def _quarantine_message(
             error=error,
             raw_message=raw_message,
         )
-        logger.error(
-            "[%s] Message quarantined: reason=%s message_id=%s correlation_id=%s",
-            consumer_name,
-            reason,
-            _message_id(raw_message),
-            _correlation_id(raw_message),
-        )
         await raw_message.ack()
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="rmq.message.quarantined",
+            status="quarantined",
+            message="Message quarantined",
+            component="rmq.consumer",
+            queue=routing_key,
+            routing_key=raw_message.routing_key,
+            message_id=_message_id(raw_message),
+            correlation_id=_correlation_id(raw_message),
+            error_message=error,
+            reason=reason,
+        )
     except Exception as quarantine_error:
-        logger.error(
-            "[%s] Failed to quarantine message, rejecting without requeue: %s",
-            consumer_name,
-            str(quarantine_error),
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="rmq.message.rejected",
+            status="failed",
+            message="Failed to quarantine message; rejecting without requeue",
+            component="rmq.consumer",
+            queue=routing_key,
+            routing_key=raw_message.routing_key,
+            message_id=_message_id(raw_message),
+            correlation_id=_correlation_id(raw_message),
+            error_type=type(quarantine_error).__name__,
+            error_message=str(quarantine_error),
             exc_info=True,
         )
         await raw_message.reject(requeue=False)
@@ -149,11 +166,33 @@ async def start_task_consumer(handler):
                 durable=True,
                 arguments=_task_queue_arguments(),
             )
-            logger.info("[TASK_CONSUMER] Started consuming task queue")
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="rmq.consume.started",
+                status="started",
+                message="Started consuming task queue",
+                component="rmq.consumer",
+                queue=settings.rabbitmq.task_queue_name,
+            )
 
             async with queue.iterator() as queue_iter:
                 async for raw_message in queue_iter:
                     try:
+                        log_event(
+                            logger,
+                            level=logging.INFO,
+                            event="rmq.message.received",
+                            status="started",
+                            message="Task message received",
+                            component="rmq.consumer",
+                            queue=settings.rabbitmq.task_queue_name,
+                            routing_key=raw_message.routing_key,
+                            message_id=_message_id(raw_message),
+                            correlation_id=_correlation_id(raw_message),
+                            delivery_tag=raw_message.delivery_tag,
+                            redelivered=raw_message.redelivered,
+                        )
                         body = _decode_message_body(raw_message)
                         try:
                             msg = json.loads(body)
@@ -183,6 +222,19 @@ async def start_task_consumer(handler):
 
                         await handler(validated.model_dump(), raw_message)
                         await raw_message.ack()
+                        log_event(
+                            logger,
+                            level=logging.INFO,
+                            event="rmq.message.acked",
+                            status="succeeded",
+                            message="Task message acknowledged",
+                            component="rmq.consumer",
+                            queue=settings.rabbitmq.task_queue_name,
+                            routing_key=raw_message.routing_key,
+                            message_id=_message_id(raw_message),
+                            correlation_id=_correlation_id(raw_message),
+                            delivery_tag=raw_message.delivery_tag,
+                        )
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
@@ -196,13 +248,28 @@ async def start_task_consumer(handler):
                         )
                         continue
         except asyncio.CancelledError:
-            logger.info("[TASK_CONSUMER] Cancellation requested")
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="rmq.consume.started",
+                status="cancelled",
+                message="Task consumer cancellation requested",
+                component="rmq.consumer",
+                queue=settings.rabbitmq.task_queue_name,
+            )
             raise
         except Exception as e:
-            logger.error(
-                "[TASK_CONSUMER] Consumer loop failed, reconnecting in %ss: %s",
-                RECONNECT_DELAY_SECONDS,
-                str(e),
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="rmq.consume.started",
+                status="retrying",
+                message="Task consumer loop failed; reconnecting",
+                component="rmq.consumer",
+                queue=settings.rabbitmq.task_queue_name,
+                delay_seconds=RECONNECT_DELAY_SECONDS,
+                error_type=type(e).__name__,
+                error_message=str(e),
                 exc_info=True,
             )
             await asyncio.sleep(RECONNECT_DELAY_SECONDS)
@@ -225,11 +292,33 @@ async def start_workflow_consumer(handler):
                 durable=True,
                 arguments=_workflow_queue_arguments(),
             )
-            logger.info("[WORKFLOW_CONSUMER] Started consuming workflow queue")
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="rmq.consume.started",
+                status="started",
+                message="Started consuming workflow queue",
+                component="rmq.consumer",
+                queue=settings.rabbitmq.workflow_queue_name,
+            )
 
             async with queue.iterator() as queue_iter:
                 async for raw_message in queue_iter:
                     try:
+                        log_event(
+                            logger,
+                            level=logging.INFO,
+                            event="rmq.message.received",
+                            status="started",
+                            message="Workflow message received",
+                            component="rmq.consumer",
+                            queue=settings.rabbitmq.workflow_queue_name,
+                            routing_key=raw_message.routing_key,
+                            message_id=_message_id(raw_message),
+                            correlation_id=_correlation_id(raw_message),
+                            delivery_tag=raw_message.delivery_tag,
+                            redelivered=raw_message.redelivered,
+                        )
                         body = _decode_message_body(raw_message)
                         try:
                             msg = json.loads(body)
@@ -259,6 +348,19 @@ async def start_workflow_consumer(handler):
 
                         await handler(validated.model_dump())
                         await raw_message.ack()
+                        log_event(
+                            logger,
+                            level=logging.INFO,
+                            event="rmq.message.acked",
+                            status="succeeded",
+                            message="Workflow message acknowledged",
+                            component="rmq.consumer",
+                            queue=settings.rabbitmq.workflow_queue_name,
+                            routing_key=raw_message.routing_key,
+                            message_id=_message_id(raw_message),
+                            correlation_id=_correlation_id(raw_message),
+                            delivery_tag=raw_message.delivery_tag,
+                        )
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
@@ -272,13 +374,28 @@ async def start_workflow_consumer(handler):
                         )
                         continue
         except asyncio.CancelledError:
-            logger.info("[WORKFLOW_CONSUMER] Cancellation requested")
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="rmq.consume.started",
+                status="cancelled",
+                message="Workflow consumer cancellation requested",
+                component="rmq.consumer",
+                queue=settings.rabbitmq.workflow_queue_name,
+            )
             raise
         except Exception as e:
-            logger.error(
-                "[WORKFLOW_CONSUMER] Consumer loop failed, reconnecting in %ss: %s",
-                RECONNECT_DELAY_SECONDS,
-                str(e),
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="rmq.consume.started",
+                status="retrying",
+                message="Workflow consumer loop failed; reconnecting",
+                component="rmq.consumer",
+                queue=settings.rabbitmq.workflow_queue_name,
+                delay_seconds=RECONNECT_DELAY_SECONDS,
+                error_type=type(e).__name__,
+                error_message=str(e),
                 exc_info=True,
             )
             await asyncio.sleep(RECONNECT_DELAY_SECONDS)

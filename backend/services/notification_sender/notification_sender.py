@@ -1,5 +1,7 @@
 from typing import Dict
-from logging_config import get_logger
+import logging
+
+from logging_config import get_logger, log_event
 
 logger = get_logger("services.notification_sender.notification_sender")
 
@@ -24,7 +26,18 @@ async def send_notification(hunt_id: int, fcm_token: str) -> Dict[str, str | boo
     Returns:
         Dict with sent status and error.
     """
-    logger.info("Sending completion notification to device token=%s", _mask_fcm_token(fcm_token))
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Sending completion notification",
+        component="services.notification_sender",
+        provider="firebase",
+        operation="send_notification",
+        hunt_id=hunt_id,
+        token_masked=_mask_fcm_token(fcm_token),
+    )
 
     try:
         from firebase_admin import messaging
@@ -45,12 +58,47 @@ async def send_notification(hunt_id: int, fcm_token: str) -> Dict[str, str | boo
         )
 
         response = messaging.send(message)
-        logger.info("FCM notification sent successfully, response: %s", response)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="succeeded",
+            message="FCM notification sent",
+            component="services.notification_sender",
+            provider="firebase",
+            operation="send_notification",
+            hunt_id=hunt_id,
+            response_id=str(response),
+        )
         return {"sent": True, "error": None}
 
     except ImportError:
-        logger.error("Firebase Admin SDK not installed. Install with: pip install firebase-admin")
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Firebase Admin SDK not installed",
+            component="services.notification_sender",
+            provider="firebase",
+            operation="send_notification",
+            hunt_id=hunt_id,
+            error_message="Firebase Admin SDK not installed",
+        )
         return {"sent": False, "error": "Firebase Admin SDK not installed"}
     except Exception as e:
-        logger.error(f"Error sending FCM notification: {e}", exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Error sending FCM notification",
+            component="services.notification_sender",
+            provider="firebase",
+            operation="send_notification",
+            hunt_id=hunt_id,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         return {"sent": False, "error": str(e)}

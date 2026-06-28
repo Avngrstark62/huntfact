@@ -4,12 +4,13 @@ Handles audio bytes and returns only transcript text.
 """
 
 import asyncio
+import logging
 from typing import Optional
 
 import requests
 
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 logger = get_logger("services.transcriber.transcriber")
 
@@ -35,16 +36,44 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
     """
     if not audio_bytes:
         error_msg = "audio_bytes cannot be empty"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message=error_msg,
+            component="services.transcriber.assemblyai",
+            provider="assemblyai",
+            operation="transcribe",
+        )
         raise ValueError(error_msg)
     
     if not fmt or fmt not in ("aac", "mp3"):
         error_msg = f"Invalid audio format: {fmt}. Must be 'aac' or 'mp3'"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message=error_msg,
+            component="services.transcriber.assemblyai",
+            provider="assemblyai",
+            operation="transcribe",
+        )
         raise ValueError(error_msg)
     
     try:
-        logger.info(f"Starting transcription for {fmt} audio ({len(audio_bytes)} bytes)")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.started",
+            status="started",
+            message="Starting AssemblyAI transcription",
+            component="services.transcriber.assemblyai",
+            provider="assemblyai",
+            operation="transcribe",
+            result_summary={"audio_bytes": len(audio_bytes), "format": fmt},
+        )
         
         headers = {
             "authorization": settings.assemblyai.api_key,
@@ -100,20 +129,62 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             status = result.get("status")
 
             if status == "completed":
-                logger.info("Transcription completed successfully")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="provider.request.succeeded",
+                    status="succeeded",
+                    message="AssemblyAI transcription completed",
+                    component="services.transcriber.assemblyai",
+                    provider="assemblyai",
+                    operation="transcribe",
+                )
                 return result.get("text")
 
             elif status == "error":
                 error_msg = f"AssemblyAI transcription failed: {result.get('error')}"
-                logger.error(error_msg)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="provider.request.failed",
+                    status="failed",
+                    message="AssemblyAI transcription failed",
+                    component="services.transcriber.assemblyai",
+                    provider="assemblyai",
+                    operation="transcribe",
+                    error_message=error_msg,
+                )
                 raise Exception(error_msg)
 
             await asyncio.sleep(1)  # polling interval
 
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="provider.request.failed",
+            status="failed",
+            message="AssemblyAI transcription validation error",
+            component="services.transcriber.assemblyai",
+            provider="assemblyai",
+            operation="transcribe",
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         raise
     except Exception as e:
         error_msg = f"AssemblyAI API error: {type(e).__name__}: {str(e)}"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="AssemblyAI transcription failed",
+            component="services.transcriber.assemblyai",
+            provider="assemblyai",
+            operation="transcribe",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         raise

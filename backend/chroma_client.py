@@ -1,8 +1,9 @@
 import chromadb
+import logging
 from typing import Optional
 
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 logger = get_logger("chroma_client")
 
@@ -26,12 +27,35 @@ class ChromaDBClient:
                     port=settings.chromadb.port,
                 )
                 self.is_healthy = True
-                logger.info(
-                    f"Connected to ChromaDB at {settings.chromadb.host}:{settings.chromadb.port}"
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="provider.request.succeeded",
+                    status="succeeded",
+                    message="Connected to ChromaDB",
+                    component="chroma_client",
+                    provider="chromadb",
+                    operation="connect",
+                    host=settings.chromadb.host,
+                    port=settings.chromadb.port,
                 )
             except Exception as e:
                 self.is_healthy = False
-                logger.error(f"Failed to connect to ChromaDB: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="provider.request.failed",
+                    status="failed",
+                    message="Failed to connect to ChromaDB",
+                    component="chroma_client",
+                    provider="chromadb",
+                    operation="connect",
+                    host=settings.chromadb.host,
+                    port=settings.chromadb.port,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
                 raise ConnectionError(f"Failed to connect to ChromaDB: {str(e)}")
         
         return self.client
@@ -41,7 +65,16 @@ class ChromaDBClient:
         if self.client:
             self.client = None
             self.is_healthy = False
-            logger.info("Disconnected from ChromaDB")
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="cancelled",
+                message="Disconnected from ChromaDB",
+                component="chroma_client",
+                provider="chromadb",
+                operation="disconnect",
+            )
 
 
 # ✅ singleton instance

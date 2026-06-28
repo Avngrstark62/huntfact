@@ -1,10 +1,11 @@
 from typing import Any, Dict, List
+import logging
 
 from pydantic import BaseModel
 
 from config import settings
 from llm import llm
-from logging_config import get_logger
+from logging_config import get_logger, log_event, sanitize_url
 from services.firecrawl.firecrawl import fetch_markdown_with_firecrawl
 
 logger = get_logger("services.web_scraper.web_scraper")
@@ -211,21 +212,52 @@ async def build_web_verification_context(
     """
     normalized_claims = _normalize_claims(claims)
     if not normalized_claims:
-        logger.warning("No valid claims received for web scraping")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="No valid claims received for web scraping",
+            component="services.web_scraper",
+        )
         return {"sources": []}
 
     candidates = _extract_candidates(url_fetcher_results)
     if not candidates:
-        logger.warning("No valid URL candidates received for web scraping")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="No valid URL candidates received",
+            component="services.web_scraper",
+        )
         return {"sources": []}
 
-    logger.info(
-        f"Selecting verification URLs from {len(candidates)} candidates for {len(normalized_claims)} claims"
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Selecting verification URLs with LLM",
+        component="services.web_scraper",
+        provider="openai",
+        operation="select_urls",
+        result_summary={"candidate_count": len(candidates), "claim_count": len(normalized_claims)},
     )
     selected_candidates = await _select_urls_with_llm(normalized_claims, candidates)
 
     if not selected_candidates:
-        logger.info("LLM selected no URLs for verification context")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="skipped",
+            message="LLM selected no URLs for verification context",
+            component="services.web_scraper",
+            provider="openai",
+            operation="select_urls",
+        )
         return {"sources": []}
 
     scraped_sources: List[Dict[str, str]] = []
@@ -234,7 +266,19 @@ async def build_web_verification_context(
         try:
             markdown = fetch_markdown_with_firecrawl(url)
         except Exception as e:
-            # logger.error(f"Failed to scrape URL '{url}' with Firecrawl: {str(e)}", exc_info=True)
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="provider.request.failed",
+                status="failed",
+                message="Failed to scrape selected URL",
+                component="services.web_scraper",
+                provider="firecrawl",
+                operation="scrape",
+                url=sanitize_url(url),
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             continue
 
         scraped_sources.append(
@@ -247,7 +291,13 @@ async def build_web_verification_context(
         )
 
     context = _build_context(scraped_sources)
-    logger.info(
-        f"Built web verification context from {len(scraped_sources)} scraped sources"
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="Built web verification context",
+        component="services.web_scraper",
+        result_summary={"scraped_source_count": len(scraped_sources)},
     )
     return context

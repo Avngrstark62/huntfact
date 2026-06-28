@@ -1,11 +1,12 @@
 from datetime import datetime, UTC
+import logging
 import re
 from typing import Any
 from uuid import uuid4
 
 from chroma_client import chroma_client
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 from openai import OpenAI
 
 logger = get_logger("services.rag_storage.rag_storage")
@@ -236,7 +237,17 @@ def _get_embeddings(texts: list[str]) -> list[list[float]]:
         )
         embeddings.extend(item.embedding for item in response.data)
 
-    logger.info("Generated embeddings for %s chunks", len(embeddings))
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.succeeded",
+        status="succeeded",
+        message="Generated embeddings",
+        component="services.rag_storage",
+        provider="openai",
+        operation="embeddings.create",
+        result_summary={"embedding_count": len(embeddings)},
+    )
     return embeddings
 
 
@@ -246,14 +257,26 @@ async def store_sources_in_rag(
 ) -> dict[str, Any]:
     normalized_sources = _normalize_sources(sources)
     if not normalized_sources:
-        logger.warning("No valid sources provided for RAG storage")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="No valid sources provided for RAG storage",
+            component="services.rag_storage",
+        )
         return {"collection_name": None, "source_count": 0, "chunk_count": 0}
 
     target_collection_name = _build_unique_collection_name(collection_name)
-    logger.info(
-        "Storing %s sources to RAG collection: %s",
-        len(normalized_sources),
-        target_collection_name,
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="db.write.started",
+        status="started",
+        message="Storing sources to RAG collection",
+        component="services.rag_storage",
+        collection_name=target_collection_name,
+        result_summary={"source_count": len(normalized_sources)},
     )
 
     chroma = chroma_client.connect()
@@ -293,7 +316,16 @@ async def store_sources_in_rag(
             )
 
     if not documents:
-        logger.warning("No chunks generated from valid sources for RAG storage")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="db.write.failed",
+            status="skipped",
+            message="No chunks generated for RAG storage",
+            component="services.rag_storage",
+            collection_name=target_collection_name,
+            result_summary={"source_count": len(normalized_sources)},
+        )
         return {
             "collection_name": target_collection_name,
             "source_count": len(normalized_sources),
@@ -308,11 +340,15 @@ async def store_sources_in_rag(
         metadatas=metadatas,
     )
 
-    logger.info(
-        "Stored %s chunks from %s sources in collection: %s",
-        len(documents),
-        len(normalized_sources),
-        target_collection_name,
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="db.write.succeeded",
+        status="succeeded",
+        message="Stored chunks in RAG collection",
+        component="services.rag_storage",
+        collection_name=target_collection_name,
+        result_summary={"chunk_count": len(documents), "source_count": len(normalized_sources)},
     )
     return {
         "collection_name": target_collection_name,

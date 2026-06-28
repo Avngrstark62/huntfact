@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import logging
 from typing import Any, Dict, List
 
 import requests
@@ -6,10 +8,14 @@ from pydantic import BaseModel
 
 from config import settings
 from llm import llm
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 logger = get_logger("services.url_fetcher.url_fetcher")
 INTER_QUERY_DELAY_SECONDS = 2
+
+
+def _query_fingerprint(query: str) -> str:
+    return hashlib.sha256(query.encode("utf-8")).hexdigest()[:12]
 
 
 class QueryListResponse(BaseModel):
@@ -141,6 +147,18 @@ def _extract_search_results(search_results: List[Dict[str, Any]]) -> List[Dict[s
 
 
 def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    query_fp = _query_fingerprint(query)
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Starting SearXNG request",
+        component="services.url_fetcher",
+        provider="searxng",
+        operation="search",
+        query_fingerprint=query_fp,
+    )
     try:
         response = requests.get(
             settings.searxng.url,
@@ -148,22 +166,47 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             timeout=settings.searxng.timeout,
         )
     except requests.RequestException as e:
-        logger.error(f"SearxNG request failed for query '{query}': {str(e)}", exc_info=True)
-        raise RuntimeError(f"SearxNG request failed for query '{query}': {str(e)}") from e
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="SearXNG request failed",
+            component="services.url_fetcher",
+            provider="searxng",
+            operation="search",
+            query_fingerprint=query_fp,
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
+        raise RuntimeError(f"SearxNG request failed for query fingerprint '{query_fp}': {str(e)}") from e
 
     if response.status_code != 200:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="SearXNG returned non-200 response",
+            component="services.url_fetcher",
+            provider="searxng",
+            operation="search",
+            query_fingerprint=query_fp,
+            http_status=response.status_code,
+        )
         raise RuntimeError(
-            f"SearxNG returned HTTP {response.status_code} for query '{query}': {response.text[:240]}"
+            f"SearxNG returned HTTP {response.status_code} for query fingerprint '{query_fp}': {response.text[:240]}"
         )
 
     try:
         payload = response.json()
     except ValueError as e:
-        raise RuntimeError(f"SearxNG returned invalid JSON for query '{query}'") from e
+        raise RuntimeError(f"SearxNG returned invalid JSON for query fingerprint '{query_fp}'") from e
 
     raw_results = payload.get("results")
     if not isinstance(raw_results, list):
-        raise RuntimeError(f"SearxNG response missing 'results' list for query '{query}'")
+        raise RuntimeError(f"SearxNG response missing 'results' list for query fingerprint '{query_fp}'")
 
     normalized_results: List[Dict[str, Any]] = []
     for item in raw_results[:max_results]:
@@ -175,6 +218,18 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
                 "url": item.get("url", ""),
             }
         )
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.succeeded",
+        status="succeeded",
+        message="SearXNG request succeeded",
+        component="services.url_fetcher",
+        provider="searxng",
+        operation="search",
+        query_fingerprint=query_fp,
+        result_summary={"url_count": len(normalized_results)},
+    )
     return normalized_results
 
 
@@ -195,35 +250,106 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
         ]
     """
     if not claims:
-        logger.warning("No claims provided for URL fetching")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="No claims provided for URL fetching",
+            component="services.url_fetcher",
+        )
         return []
 
     cleaned_claims = [claim.strip() for claim in claims if claim and claim.strip()]
     if not cleaned_claims:
-        logger.warning("Claims are empty after normalization")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="skipped",
+            message="Claims are empty after normalization",
+            component="services.url_fetcher",
+        )
         return []
 
-    logger.info(f"Generating web queries for {len(cleaned_claims)} related claims")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.started",
+        status="started",
+        message="Generating web queries",
+        component="services.url_fetcher",
+        result_summary={"claim_count": len(cleaned_claims)},
+    )
     queries = await _generate_web_queries(cleaned_claims)
-    logger.info(f"Generated {len(queries)} web queries for URL fetching")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="Generated web queries",
+        component="services.url_fetcher",
+        result_summary={"query_count": len(queries)},
+    )
 
     results: List[Dict[str, Any]] = []
 
     for index, query in enumerate(queries):
-        logger.info(f"Searching web for query: {query}")
+        query_fp = _query_fingerprint(query)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.started",
+            status="started",
+            message="Searching web for query",
+            component="services.url_fetcher",
+            provider="searxng",
+            operation="search",
+            query_fingerprint=query_fp,
+        )
         try:
             search_results = _search_web_via_searxng(query=query, max_results=10)
         except Exception as e:
-            logger.error(f"SearxNG web search failed for query '{query}': {str(e)}", exc_info=True)
-            raise RuntimeError(f"SearxNG web search failed for query '{query}': {str(e)}") from e
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="provider.request.failed",
+                status="failed",
+                message="SearXNG web search failed",
+                component="services.url_fetcher",
+                provider="searxng",
+                operation="search",
+                query_fingerprint=query_fp,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise RuntimeError(f"SearxNG web search failed for query fingerprint '{query_fp}': {str(e)}") from e
 
         urls = _extract_search_results(search_results)
-        logger.info(f"Found {len(urls)} URLs for query: {query}")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="succeeded",
+            message="SearXNG web search completed",
+            component="services.url_fetcher",
+            provider="searxng",
+            operation="search",
+            query_fingerprint=query_fp,
+            result_summary={"url_count": len(urls)},
+        )
         results.append({"query": query, "urls": urls})
 
         if index < len(queries) - 1:
-            logger.info(
-                f"Waiting {INTER_QUERY_DELAY_SECONDS}s before next web search query"
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="task.retrying",
+                status="retrying",
+                message="Waiting before next web search query",
+                component="services.url_fetcher",
+                delay_seconds=INTER_QUERY_DELAY_SECONDS,
             )
             await asyncio.sleep(INTER_QUERY_DELAY_SECONDS)
 

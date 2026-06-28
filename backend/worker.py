@@ -1,10 +1,11 @@
 import asyncio
 import json
+import logging
 import signal
 
 import aio_pika
 
-from logging_config import get_logger, setup_logging
+from logging_config import get_logger, log_event, setup_logging
 from firebase_config import initialize_firebase
 from rmq.constants import (
     EXTRACT_AUDIO,
@@ -72,6 +73,33 @@ async def _publish_task_reply(
             aio_pika.Message(**msg_kwargs),
             routing_key=reply_to,
         )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="rmq.rpc.reply.received",
+            status="succeeded",
+            message="Published RPC reply",
+            component="worker",
+            correlation_id=cid,
+            reply_to=reply_to,
+            routing_key=raw_message.routing_key,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="rmq.rpc.reply.failed",
+            status="failed",
+            message="Failed to publish RPC reply",
+            component="worker",
+            correlation_id=cid,
+            reply_to=reply_to,
+            routing_key=raw_message.routing_key,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            exc_info=True,
+        )
+        raise
     finally:
         await reply_channel.close()
 
@@ -87,13 +115,32 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
     """Run one pipeline step. Sends RPC reply when the incoming message has reply_to."""
     step = None
     reply_to = _decode_reply_to(raw_message)
+    task_status = "failed"
+    payload = msg.get("payload") if isinstance(msg, dict) else {}
+    payload = payload if isinstance(payload, dict) else {}
+    context = payload.get("context")
+    context = context if isinstance(context, dict) else {}
 
     try:
         step = msg.get("step")
-        payload = msg.get("payload")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="task.started",
+            status="started",
+            message="Starting worker task",
+            component="worker",
+            step=step,
+            workflow_id=context.get("workflow_id"),
+            hunt_id=context.get("hunt_id"),
+            request_id=context.get("request_id"),
+            task_id=context.get("task_id"),
+            correlation_id=_decode_correlation_id(raw_message),
+            reply_to=reply_to,
+            rpc_mode=bool(reply_to),
+        )
 
         if step == EXTRACT_AUDIO:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_extract_audio(payload)
             if result is None:
                 raise RuntimeError("Audio extraction handler returned no result")
@@ -106,10 +153,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == TRANSCRIBE:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_transcribe(payload)
             if result is None:
                 raise RuntimeError("Transcription handler returned no result")
@@ -122,10 +169,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == TRANSCRIPTION_CORRECT:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_correct_transcription(payload)
             if result is None:
                 raise RuntimeError("transcription_corrector handler returned no result")
@@ -138,10 +185,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == TRANSLATE:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_translate(payload)
             if result is None:
                 raise RuntimeError("Translation handler returned no result")
@@ -154,10 +201,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == EXTRACT_CLAIM_CLUSTERS:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_extract_claim_clusters(payload)
             if result is None:
                 raise RuntimeError("Claim cluster extraction handler returned no result")
@@ -170,10 +217,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == URL_FETCHER:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_url_fetcher(payload)
             if result is None:
                 raise RuntimeError("URL fetcher handler returned no result")
@@ -186,10 +233,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == WEB_SCRAPER:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_web_scraper(payload)
             if result is None:
                 raise RuntimeError("Web scraper handler returned no result")
@@ -202,10 +249,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == RAG_STORAGE:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_rag_storage(payload)
             if result is None:
                 raise RuntimeError("RAG storage handler returned no result")
@@ -218,10 +265,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == CLAIM_VERIFIER:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_claim_verifier(payload)
             if result is None:
                 raise RuntimeError("Claim verifier handler returned no result")
@@ -234,10 +281,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == SAVE_RESULT_TO_DB:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_save_result_to_db(payload)
             if result is None:
                 raise RuntimeError("save_result_to_db handler returned no result")
@@ -250,10 +297,10 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
         if step == NOTIFY:
-            logger.info(f"[TASK HANDLER] Starting task - step: {step}")
             result = await handle_notify(payload)
             if result is None:
                 raise RuntimeError("notify handler returned no result")
@@ -266,9 +313,22 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                     reply_to,
                     {"status": "success", "step": step, "result": validated_result},
                 )
+            task_status = "succeeded"
             return
 
-        logger.error(f"[TASK HANDLER] No handler for step: {step}")
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="No handler for step",
+            component="worker",
+            step=step,
+            workflow_id=context.get("workflow_id"),
+            hunt_id=context.get("hunt_id"),
+            request_id=context.get("request_id"),
+            task_id=context.get("task_id"),
+        )
         if reply_to:
             await _publish_task_reply(
                 raw_message,
@@ -282,8 +342,21 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
         return
 
     except Exception as e:
-        logger.error(
-            f"[TASK HANDLER] Task failed - step: {step}, error: {str(e)}",
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="Worker task failed",
+            component="worker",
+            step=step,
+            workflow_id=context.get("workflow_id"),
+            hunt_id=context.get("hunt_id"),
+            request_id=context.get("request_id"),
+            task_id=context.get("task_id"),
+            correlation_id=_decode_correlation_id(raw_message),
+            error_type=type(e).__name__,
+            error_message=str(e),
             exc_info=True,
         )
         if reply_to:
@@ -294,6 +367,22 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
             )
             return
         raise
+    finally:
+        if task_status == "succeeded":
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="task.succeeded",
+                status="succeeded",
+                message="Worker task completed",
+                component="worker",
+                step=step,
+                workflow_id=context.get("workflow_id"),
+                hunt_id=context.get("hunt_id"),
+                request_id=context.get("request_id"),
+                task_id=context.get("task_id"),
+                correlation_id=_decode_correlation_id(raw_message),
+            )
 
 
 async def main():
@@ -301,18 +390,39 @@ async def main():
     try:
         initialize_firebase()
     except Exception as e:
-        logger.error(
-            "Firebase initialization failed at startup; worker will continue and notification tasks may fail: %s",
-            str(e),
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="app.lifecycle.failed",
+            status="failed",
+            message="Firebase initialization failed at worker startup",
+            component="worker",
+            error_type=type(e).__name__,
+            error_message=str(e),
             exc_info=True,
         )
-    logger.info("Starting worker...")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="app.lifecycle.started",
+        status="started",
+        message="Starting worker",
+        component="worker",
+    )
 
     loop = asyncio.get_event_loop()
     consumer_task = None
 
     def handle_shutdown(signum, frame):
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.cancelled",
+            status="cancelled",
+            message="Worker received shutdown signal",
+            component="worker",
+            signal=signum,
+        )
         if consumer_task and not consumer_task.done():
             consumer_task.cancel()
 
@@ -323,18 +433,66 @@ async def main():
         consumer_task = asyncio.create_task(start_task_consumer(handle_task))
         await consumer_task
     except asyncio.CancelledError:
-        logger.info("Consumer was cancelled, shutting down...")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.cancelled",
+            status="cancelled",
+            message="Worker consumer cancelled",
+            component="worker",
+        )
     except Exception as e:
-        logger.error(f"Worker error: {str(e)}", exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="app.lifecycle.failed",
+            status="failed",
+            message="Worker error",
+            component="worker",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         raise
     finally:
-        logger.info("Cleaning up resources...")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.cancelled",
+            status="cancelled",
+            message="Cleaning up worker resources",
+            component="worker",
+        )
         try:
             await rabbitmq.close()
-            logger.info("RabbitMQ connection closed")
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="app.lifecycle.cancelled",
+                status="cancelled",
+                message="Worker RabbitMQ connection closed",
+                component="worker",
+            )
         except Exception as e:
-            logger.error(f"Error closing RabbitMQ: {str(e)}", exc_info=True)
-        logger.info("Worker shutdown complete")
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="app.lifecycle.failed",
+                status="failed",
+                message="Error closing worker RabbitMQ",
+                component="worker",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="app.lifecycle.succeeded",
+            status="cancelled",
+            message="Worker shutdown complete",
+            component="worker",
+        )
 
 
 if __name__ == "__main__":

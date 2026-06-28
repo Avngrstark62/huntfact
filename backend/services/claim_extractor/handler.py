@@ -1,6 +1,7 @@
 from typing import Optional
+import logging
 
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 from services.claim_extractor.claim_extractor import extract_claim_clusters
 
 logger = get_logger("services.claim_extractor.handler")
@@ -16,18 +17,53 @@ async def handle_extract_claim_clusters(payload: dict | None = None) -> Optional
     Returns:
         Dict with claim clusters and error.
     """
-    logger.info("Starting claim cluster extraction")
+    trace_context = ((payload or {}).get("context") if isinstance(payload, dict) else {}) or {}
+    trace_context = trace_context if isinstance(trace_context, dict) else {}
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.started",
+        status="started",
+        message="Starting claim cluster extraction",
+        component="services.claim_extractor.handler",
+        workflow_id=trace_context.get("workflow_id"),
+        hunt_id=trace_context.get("hunt_id"),
+        request_id=trace_context.get("request_id"),
+        task_id=trace_context.get("task_id"),
+        step=trace_context.get("step"),
+    )
 
     content = (payload or {}).get("content")
 
     if not content:
-        logger.error("No content found in payload")
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="No content found in payload",
+            component="services.claim_extractor.handler",
+            workflow_id=trace_context.get("workflow_id"),
+            hunt_id=trace_context.get("hunt_id"),
+            request_id=trace_context.get("request_id"),
+            task_id=trace_context.get("task_id"),
+        )
         return {"clusters": None, "error": "No content found in payload"}
-
-    logger.info(f"Extracting claim clusters from content ({len(content)} chars)")
 
     clusters = await extract_claim_clusters(content)
 
-    logger.info(f"Claim cluster extraction completed ({len(clusters)} clusters)")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="Claim cluster extraction completed",
+        component="services.claim_extractor.handler",
+        workflow_id=trace_context.get("workflow_id"),
+        hunt_id=trace_context.get("hunt_id"),
+        request_id=trace_context.get("request_id"),
+        task_id=trace_context.get("task_id"),
+        result_summary={"cluster_count": len(clusters)},
+    )
 
     return {"clusters": clusters, "error": None}

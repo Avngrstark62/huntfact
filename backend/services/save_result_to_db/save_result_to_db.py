@@ -1,11 +1,12 @@
 from typing import Any, Dict
+import logging
 
 from pydantic import BaseModel
 
 from config import settings
 from db.database import db
 from llm import llm
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 from result_schema import FactCheckResult, FactCheckRow
 
 logger = get_logger("services.save_result_to_db.save_result_to_db")
@@ -103,6 +104,17 @@ Requirements:
     ]
 
     try:
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.started",
+            status="started",
+            message="Generating hunt metadata with LLM",
+            component="services.save_result_to_db",
+            provider="openai",
+            operation="generate_hunt_metadata",
+            result_summary={"row_count": len(rows)},
+        )
         result = await llm.call_with_schema(
             model=settings.llm.reasoning_model,
             messages=messages,
@@ -110,9 +122,31 @@ Requirements:
         )
         title = result.title.strip() or fallback_title
         summary = result.summary.strip() or fallback_summary
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="succeeded",
+            message="Generated hunt metadata with LLM",
+            component="services.save_result_to_db",
+            provider="openai",
+            operation="generate_hunt_metadata",
+        )
         return title, summary
     except Exception as e:
-        logger.error("Failed to generate hunt metadata: %s", str(e), exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Failed to generate hunt metadata",
+            component="services.save_result_to_db",
+            provider="openai",
+            operation="generate_hunt_metadata",
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         return fallback_title, fallback_summary
 
 
@@ -130,6 +164,16 @@ async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, An
     rows = _extract_rows(table)
     if not rows:
         raise ValueError("Result rows are missing or invalid")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="db.write.started",
+        status="started",
+        message="Saving result table to DB",
+        component="services.save_result_to_db",
+        hunt_id=hunt_id,
+        result_summary={"row_count": len(rows)},
+    )
 
     title, summary = await _generate_hunt_metadata(rows)
     trust_score = _compute_trust_score(rows)
@@ -148,7 +192,16 @@ async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, An
         if not updated_hunt:
             raise RuntimeError(f"Hunt not found for hunt_id={hunt_id}")
 
-        logger.info(f"Saved result table to DB for hunt_id: {hunt_id}")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded",
+            message="Saved result table to DB",
+            component="services.save_result_to_db",
+            hunt_id=hunt_id,
+            result_summary={"row_count": len(row_dicts)},
+        )
         return {
             "hunt_id": hunt_id,
             "result": row_dicts,

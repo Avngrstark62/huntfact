@@ -1,4 +1,5 @@
 import time
+import logging
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any
@@ -9,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, hash_user_id, log_event
 
 logger = get_logger("auth.supabase")
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -49,7 +50,15 @@ class JwksCache:
                 response.raise_for_status()
                 payload = response.json()
             except Exception:
-                logger.error("Failed to fetch Supabase JWKS", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="auth.check.failed",
+                    status="failed",
+                    message="Failed to fetch Supabase JWKS",
+                    component="api.auth",
+                    exc_info=True,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid authentication token",
@@ -83,7 +92,16 @@ def _get_signing_key(token: str, jwks: dict[str, Any]) -> dict[str, Any]:
     try:
         header = jwt.get_unverified_header(token)
     except JWTError as e:
-        logger.error("JWT decode failed: %s", str(e))
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="auth.check.failed",
+            status="failed",
+            message="JWT header decode failed",
+            component="api.auth",
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
@@ -119,7 +137,16 @@ def _decode_claims(token: str, signing_key: dict[str, Any]) -> dict[str, Any]:
     try:
         return jwt.decode(token, signing_key, **kwargs)
     except JWTError as e:
-        logger.error("JWT decode failed: %s", str(e))
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="auth.check.failed",
+            status="failed",
+            message="JWT claims decode failed",
+            component="api.auth",
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
@@ -130,12 +157,35 @@ def get_authenticated_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> AuthenticatedUser:
+    request_id = getattr(request.state, "request_id", None)
     if settings.auth.disable:
         user = AuthenticatedUser(sub="disabled-auth-user")
         request.state.authenticated_user = user
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="auth.check.succeeded",
+            status="succeeded",
+            message="Auth check bypassed because auth is disabled",
+            component="api.auth",
+            request_id=request_id,
+            path=request.url.path,
+            auth_outcome="success",
+            user_id_hash=hash_user_id(user.sub),
+        )
         return user
     
     try:
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="auth.check.started",
+            status="started",
+            message="Starting auth check",
+            component="api.auth",
+            request_id=request_id,
+            path=request.url.path,
+        )
         token = _extract_token(credentials)
         jwks = _jwks_cache.get_jwks()
         signing_key = _get_signing_key(token, jwks)
@@ -150,15 +200,31 @@ def get_authenticated_user(
 
         user = AuthenticatedUser(sub=subject, email=claims.get("email"))
         request.state.authenticated_user = user
-        logger.info(
-            "auth_check outcome=success endpoint=%s user_id=%s",
-            request.url.path,
-            user.sub,
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="auth.check.succeeded",
+            status="succeeded",
+            message="Auth check succeeded",
+            component="api.auth",
+            request_id=request_id,
+            path=request.url.path,
+            auth_outcome="success",
+            user_id_hash=hash_user_id(user.sub),
         )
         return user
     except HTTPException as e:
-        logger.info(
-            f"auth_check outcome=failure endpoint=%s user_id=unknown error={e}",
-            request.url.path,
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="auth.check.failed",
+            status="failed",
+            message="Auth check failed",
+            component="api.auth",
+            request_id=request_id,
+            path=request.url.path,
+            auth_outcome="failure",
+            error_type=type(e).__name__,
+            error_message=str(e.detail),
         )
         raise

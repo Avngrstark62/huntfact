@@ -1,10 +1,11 @@
 import asyncio
 import hashlib
+import logging
 
 from sqlalchemy.orm import Session
 
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, log_event, sanitize_url
 from db.database import db
 from rmq.publisher import publish_workflow
 from rmq.schemas import WorkflowMessage
@@ -36,6 +37,7 @@ async def _admit_and_publish_workflow_once(
     video_link: str,
     cdn_link: str,
     fcm_token: str,
+    context: dict | None = None,
 ) -> tuple[bool, str]:
     workflow_id = generate_workflow_id(video_link)
     workflow_message = WorkflowMessage(
@@ -46,6 +48,11 @@ async def _admit_and_publish_workflow_once(
             "video_link": video_link,
             "cdn_link": cdn_link,
             "fcm_token": fcm_token,
+            "context": {
+                **(context or {}),
+                "workflow_id": workflow_id,
+                "hunt_id": hunt_id,
+            },
         },
     )
     admitted = db.create_workflow_admission(
@@ -60,11 +67,15 @@ async def _admit_and_publish_workflow_once(
             workflow_id=workflow_id,
             hunt_id=hunt_id,
         )
-        logger.info(
-            "Workflow already admitted for video_link=%s workflow_id=%s hunt_id=%s",
-            video_link,
-            workflow_id,
-            hunt_id,
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="workflow.admission.succeeded",
+            status="skipped",
+            message="Workflow already admitted",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            video_link=sanitize_url(video_link),
         )
         return True, "Hunt is already processing."
 
@@ -76,10 +87,14 @@ async def _admit_and_publish_workflow_once(
             admission_created_by_this_call=True,
         ) from publish_error
 
-    logger.info(
-        "Workflow admitted and published: workflow_id=%s hunt_id=%s",
-        workflow_id,
-        hunt_id,
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="workflow.admission.succeeded",
+        status="succeeded",
+        message="Workflow admitted and published",
+        workflow_id=workflow_id,
+        hunt_id=hunt_id,
     )
     return True, "Hunt started successfully"
 
@@ -91,6 +106,7 @@ async def admit_and_publish_workflow(
     video_link: str,
     cdn_link: str,
     fcm_token: str,
+    context: dict | None = None,
 ) -> tuple[bool, str]:
     retry_count, base_delay_seconds = _retry_settings()
     workflow_id = generate_workflow_id(video_link)
@@ -105,6 +121,7 @@ async def admit_and_publish_workflow(
                 video_link=video_link,
                 cdn_link=cdn_link,
                 fcm_token=fcm_token,
+                context=context,
             )
         except _WorkflowAdmissionAttemptError as attempt_error:
             last_error = attempt_error.__cause__ or attempt_error
@@ -122,25 +139,36 @@ async def admit_and_publish_workflow(
         if attempt >= retry_count:
             if admission_created_by_this_call:
                 db.delete_workflow_admission(session, workflow_id)
-            logger.error(
-                "Workflow admission/publish failed after retries: workflow_id=%s hunt_id=%s attempts=%s error=%s",
-                workflow_id,
-                hunt_id,
-                retry_count,
-                str(last_error) if last_error is not None else "unknown error",
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="workflow.admission.failed",
+                status="failed",
+                message="Workflow admission/publish failed after retries",
+                workflow_id=workflow_id,
+                hunt_id=hunt_id,
+                attempt=retry_count,
+                max_attempts=retry_count,
+                error_type=type(last_error).__name__ if last_error is not None else None,
+                error_message=str(last_error) if last_error is not None else "unknown error",
                 exc_info=True,
             )
             return False, "Hunt failed previously. Please try again."
 
         delay_seconds = base_delay_seconds * (2 ** (attempt - 1))
-        logger.warning(
-            "Workflow admission/publish attempt failed; retrying: workflow_id=%s hunt_id=%s attempt=%s/%s delay_seconds=%.3f error=%s",
-            workflow_id,
-            hunt_id,
-            attempt,
-            retry_count,
-            delay_seconds,
-            str(last_error) if last_error is not None else "unknown error",
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="workflow.admission.failed",
+            status="retrying",
+            message="Workflow admission/publish attempt failed; retrying",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            attempt=attempt,
+            max_attempts=retry_count,
+            delay_seconds=delay_seconds,
+            error_type=type(last_error).__name__ if last_error is not None else None,
+            error_message=str(last_error) if last_error is not None else "unknown error",
         )
         if delay_seconds > 0:
             await asyncio.sleep(delay_seconds)
@@ -156,10 +184,15 @@ def clear_workflow_admission(workflow_id: str | None) -> None:
     try:
         db.delete_workflow_admission(session, workflow_id.strip())
     except Exception as delete_error:
-        logger.error(
-            "Failed to clear workflow admission row: workflow_id=%s error=%s",
-            workflow_id,
-            str(delete_error),
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="workflow.admission.failed",
+            status="failed",
+            message="Failed to clear workflow admission row",
+            workflow_id=workflow_id,
+            error_type=type(delete_error).__name__,
+            error_message=str(delete_error),
             exc_info=True,
         )
     finally:

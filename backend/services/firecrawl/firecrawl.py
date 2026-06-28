@@ -1,7 +1,8 @@
 from firecrawl import Firecrawl
+import logging
 
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, log_event, sanitize_url
 
 logger = get_logger("services.firecrawl.firecrawl")
 
@@ -16,11 +17,45 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
 
     response = None
 
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.started",
+        status="started",
+        message="Starting Firecrawl scrape",
+        component="services.firecrawl",
+        provider="firecrawl",
+        operation="scrape",
+        url=sanitize_url(cleaned_url),
+    )
     try:
         response = app.scrape(cleaned_url, formats=["markdown"])
-        logger.info(f"Firecrawl scrape succeeded for URL '{cleaned_url}'")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="provider.request.succeeded",
+            status="succeeded",
+            message="Firecrawl scrape succeeded",
+            component="services.firecrawl",
+            provider="firecrawl",
+            operation="scrape",
+            url=sanitize_url(cleaned_url),
+        )
     except Exception as e:
-        logger.info(f"Firecrawl scrape failed for URL '{cleaned_url}'")
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Firecrawl scrape failed",
+            component="services.firecrawl",
+            provider="firecrawl",
+            operation="scrape",
+            url=sanitize_url(cleaned_url),
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
         return ""
         # raise RuntimeError(f"Firecrawl scrape failed for URL '{cleaned_url}'") from e
 

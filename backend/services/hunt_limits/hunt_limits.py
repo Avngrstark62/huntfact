@@ -1,8 +1,9 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+import logging
 
 from db.database import db
-from logging_config import get_logger
+from logging_config import get_logger, hash_user_id, log_event
 
 logger = get_logger("services.hunt_limits.hunt_limits")
 
@@ -12,11 +13,16 @@ def enforce_user_hunt_limit(session: Session, user_id: str) -> HTTPException | N
     active_hunts_count = db.get_active_hunts_count_by_user_id(session, user_id)
 
     if active_hunts_count >= user_hunts_limit:
-        logger.info(
-            "Hunt limit reached for user_id=%s active_hunts=%s hunts_limit=%s",
-            user_id,
-            active_hunts_count,
-            user_hunts_limit,
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="workflow.admission.failed",
+            status="failed",
+            message="Hunt limit reached",
+            component="services.hunt_limits",
+            user_id_hash=hash_user_id(user_id),
+            active_hunts=active_hunts_count,
+            hunts_limit=user_hunts_limit,
         )
         return HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

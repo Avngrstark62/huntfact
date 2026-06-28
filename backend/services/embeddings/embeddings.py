@@ -1,9 +1,10 @@
 from typing import List
+import logging
 
 from openai import OpenAI
 
 from config import settings
-from logging_config import get_logger
+from logging_config import get_logger, log_event
 
 logger = get_logger("services.embeddings.embeddings")
 
@@ -26,6 +27,16 @@ def get_embeddings(texts: List[str]) -> List[List[float]]:
     )
 
     embeddings = [item.embedding for item in response.data]
-    logger.info(f"Generated embeddings for {len(embeddings)} texts")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="provider.request.succeeded",
+        status="succeeded",
+        message="Generated embeddings",
+        component="services.embeddings",
+        provider="openai",
+        operation="embeddings.create",
+        result_summary={"embedding_count": len(embeddings)},
+    )
 
     return embeddings

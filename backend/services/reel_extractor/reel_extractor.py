@@ -68,6 +68,37 @@ def _extract_csrf_token(html: str) -> Optional[str]:
     return None
 
 
+def _extract_lsd_token(html: str) -> Optional[str]:
+    """
+    Extract LSD token used by Instagram GraphQL requests.
+    """
+    patterns = [
+        r'"LSD",\[\],\{"token":"([^"]+)"\}',
+        r'"lsd":"([^"]+)"',
+        r'"token":"([^"]+)","__typename":"LSD"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _extract_ig_app_id(html: str) -> Optional[str]:
+    """
+    Extract IG app id from page payload, if present.
+    """
+    patterns = [
+        r'"app_id":"(\d+)"',
+        r'"X-IG-App-ID":"(\d+)"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html)
+        if match:
+            return match.group(1)
+    return None
+
+
 def get_reel_video_url(reel_url: str) -> Optional[str]:
     """
     Extract direct CDN video URL from Instagram reel link.
@@ -116,6 +147,18 @@ def get_reel_video_url(reel_url: str) -> Optional[str]:
             print(f"❌ [Step 2] Failed to extract CSRF token from response", file=__import__('sys').stderr)
             return None
         print(f"✓ [Step 2] Extracted CSRF token")
+
+        lsd_token = _extract_lsd_token(resp.text)
+        if lsd_token:
+            print("✓ [Step 2] Extracted LSD token")
+        else:
+            print("⚠ [Step 2] LSD token not found; continuing")
+
+        app_id = _extract_ig_app_id(resp.text)
+        if app_id:
+            print(f"✓ [Step 2] Extracted IG app id: {app_id}")
+        else:
+            print("⚠ [Step 2] IG app id not found in page")
         
         # Step 3: Simulate human reading time (anti-bot)
         time.sleep(0.2)
@@ -130,13 +173,17 @@ def get_reel_video_url(reel_url: str) -> Optional[str]:
             'authority': 'www.instagram.com',
             'scheme': 'https',
             'accept': '*/*',
-            'X-CSRFToken': csrf_token,
+            'X-CSRFToken': session.cookies.get('csrftoken', csrf_token),
             'Referer': page_url,
         })
+        if lsd_token:
+            graphql_headers['x-fb-lsd'] = lsd_token
+        if app_id:
+            graphql_headers['x-ig-app-id'] = app_id
         
         # GraphQL variables and doc_id
         variables = json.dumps({'shortcode': shortcode}, separators=(',', ':'))
-        doc_id = '8845758582119845'  # doc_id for shortcode media queries
+        doc_id = '8845758582119845'  # success but no data, severity: critical
         # doc_id = '34473019679012509'
         # doc_id = '33328371206806736'
         # doc_id = '26636510599312486'
@@ -147,17 +194,42 @@ def get_reel_video_url(reel_url: str) -> Optional[str]:
         # doc_id = '27116338451299930'
         # doc_id = '24869955132672973'
         # doc_id = '25776299125399759'
+
+        # doc_id = '27014231481534520'
+        # doc_id = '26302028256140656'
+        # doc_id = '27657376130569675'
+        # doc_id = '36825039943776829'
+        # doc_id = '28296776023244273'
+        # doc_id = '37319089834342862' # success but no data, severity: critical
+        # doc_id = '27258191930500454'
+        # doc_id = '26830846323236891' # success but no data, severity: critical
+
+        # doc_id = '26565457316490229'
+        # doc_id = '36154255904165647'
         
         graphql_url = 'https://www.instagram.com/graphql/query'
+        request_payload = {
+            'variables': variables,
+            'doc_id': doc_id,
+            'server_timestamps': 'true',
+        }
+        if lsd_token:
+            request_payload['lsd'] = lsd_token
+
+        debug_headers = {
+            'x-fb-lsd': graphql_headers.get('x-fb-lsd'),
+            'x-ig-app-id': graphql_headers.get('x-ig-app-id'),
+            'X-CSRFToken': graphql_headers.get('X-CSRFToken'),
+            'Referer': graphql_headers.get('Referer'),
+        }
+        print(f"[DEBUG Step 4] headers={debug_headers}")
+        print(f"[DEBUG Step 4] payload={request_payload}")
+        print(f"[DEBUG Step 4] cookies={session.cookies.get_dict()}")
         try:
             graphql_resp = session.post(
                 graphql_url,
                 headers=graphql_headers,
-                data={
-                    'variables': variables,
-                    'doc_id': doc_id,
-                    'server_timestamps': 'true'
-                },
+                data=request_payload,
                 timeout=10
             )
             graphql_resp.raise_for_status()
@@ -165,6 +237,8 @@ def get_reel_video_url(reel_url: str) -> Optional[str]:
             print(f"❌ [Step 4] GraphQL request failed: {e}", file=__import__('sys').stderr)
             return None
         print(f"✓ [Step 4] GraphQL query successful (status: {graphql_resp.status_code})")
+        print(f"[DEBUG Step 4] content-type={graphql_resp.headers.get('content-type')}")
+        print(f"[DEBUG Step 4] response-snippet={graphql_resp.text[:1000]}")
         
         # Step 5: Parse response and extract video_url
         try:
@@ -172,6 +246,8 @@ def get_reel_video_url(reel_url: str) -> Optional[str]:
         except json.JSONDecodeError as e:
             print(f"❌ [Step 5] Failed to parse GraphQL response as JSON: {e}", file=__import__('sys').stderr)
             return None
+
+        print("response_json:", response_json)
         
         data_field = response_json.get('data')
         if data_field is None:

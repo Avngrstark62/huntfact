@@ -1,51 +1,31 @@
 package com.abhijeet.huntfact.extraction
 
-import com.google.gson.JsonParser
-import com.google.gson.stream.JsonReader
 import com.abhijeet.huntfact.utils.DebugLogger
+import com.google.gson.JsonArray
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.FormBody
-import okhttp3.Interceptor
+import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
+import org.w3c.dom.Element
+import org.xml.sax.InputSource
 import java.io.StringReader
+import java.net.URI
 import java.net.URL
 import java.util.concurrent.TimeUnit
-import java.util.regex.Pattern
-import java.util.zip.GZIPInputStream
+import javax.xml.parsers.DocumentBuilderFactory
 
 object ReelExtractor {
     private const val TAG = "ReelExtractor"
-    
-    private val httpClient = OkHttpClient.Builder()
-        .addInterceptor(GzipDecompressionInterceptor())
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
+    private const val MPD_NS = "urn:mpeg:dash:schema:mpd:2011"
 
-    private class GzipDecompressionInterceptor : Interceptor {
-        override fun intercept(chain: Interceptor.Chain): Response {
-            val response = chain.proceed(chain.request())
-            
-            val encoding = response.header("Content-Encoding")
-            if (encoding != null && (encoding.contains("gzip") || encoding.contains("deflate"))) {
-                val decompressedBody = response.body?.let { body ->
-                    val inputStream = GZIPInputStream(body.byteStream())
-                    val decompressedString = inputStream.bufferedReader().use { it.readText() }
-                    okhttp3.ResponseBody.create(body.contentType(), decompressedString)
-                } ?: response.body
-                
-                return response.newBuilder()
-                    .body(decompressedBody)
-                    .removeHeader("Content-Encoding")
-                    .build()
-            }
-            
-            return response
-        }
-    }
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .build()
 
     data class ReelInfo(
         val cdnUrl: String,
@@ -54,227 +34,292 @@ object ReelExtractor {
         val creatorHandle: String?,
     )
 
+    private data class CdnRecord(
+        val url: String,
+        val source: String?,
+        val contentType: String?,
+        val mimeType: String?,
+        val representationId: String?,
+        val bandwidth: String?,
+        val width: String?,
+        val height: String?,
+        val codecs: String?,
+    )
+
     suspend fun extractCdnUrl(reelUrl: String): String? = withContext(Dispatchers.IO) {
         extractReelInfo(reelUrl)?.cdnUrl
     }
 
     suspend fun extractReelInfo(reelUrl: String): ReelInfo? = withContext(Dispatchers.IO) {
         try {
-            // Clean the URL first (remove query parameters)
             val cleanedUrl = cleanInstagramUrl(reelUrl)
-            
-            // Step 1: Extract shortcode
             val shortcode = extractShortcodeFromUrl(cleanedUrl)
             if (shortcode == null) {
-                DebugLogger.e(TAG, "Failed to extract shortcode from URL: $cleanedUrl")
-                return@withContext null
-            }
-            DebugLogger.d(TAG, "Extracted shortcode: $shortcode")
-
-            // Step 2: Fetch reel page to get CSRF token
-            val pageUrl = "https://www.instagram.com/reel/$shortcode/"
-            val pageResponse = try {
-                val request = Request.Builder()
-                    .url(pageUrl)
-                    .headers(getBrowserHeaders())
-                    .build()
-                httpClient.newCall(request).execute()
-            } catch (e: Exception) {
-                DebugLogger.e(TAG, "Failed to fetch reel page: ${e.message}", e)
+                DebugLogger.e(TAG, "Could not extract shortcode from URL: $cleanedUrl")
                 return@withContext null
             }
 
-            if (!pageResponse.isSuccessful) {
-                DebugLogger.e(TAG, "Failed to fetch reel page (status: ${pageResponse.code})")
+            val reelPageUrl = "https://www.instagram.com/reel/$shortcode/?l=1"
+            val htmlText = fetchReelHtml(reelPageUrl) ?: return@withContext null
+            val audioCdnUrl = extractAudioCdnLinkFromHtml(htmlText)
+
+            if (audioCdnUrl.isNullOrBlank()) {
+                DebugLogger.e(TAG, "Audio CDN link not found in HTML")
                 return@withContext null
             }
 
-            val pageHtml = pageResponse.body?.string() ?: ""
-            DebugLogger.d(TAG, "Fetched reel page (status: ${pageResponse.code})")
-
-            // Extract CSRF token
-            var csrfToken = extractCsrfToken(pageHtml)
-            if (csrfToken == null) {
-                // Try to get from cookies
-                val setCookieHeaders = pageResponse.headers("set-cookie")
-                for (cookie in setCookieHeaders) {
-                    if (cookie.contains("csrftoken=")) {
-                        val parts = cookie.split(";")[0].split("=")
-                        if (parts.size == 2) {
-                            csrfToken = parts[1]
-                            break
-                        }
-                    }
-                }
-            }
-
-            if (csrfToken == null) {
-                DebugLogger.e(TAG, "Failed to extract CSRF token")
-                return@withContext null
-            }
-            DebugLogger.d(TAG, "Extracted CSRF token")
-
-            // Step 3: Small delay (anti-bot)
-            Thread.sleep(200)
-
-            // Step 4: GraphQL query
-            val graphqlHeaders: MutableMap<String, String> = mutableMapOf<String, String>().apply {
-                getBrowserHeaders().forEach { (key, value) ->
-                    put(key, value)
-                }
-                remove("Content-Length")
-                put("authority", "www.instagram.com")
-                put("scheme", "https")
-                put("accept", "*/*")
-                put("X-CSRFToken", csrfToken)
-                put("Referer", pageUrl)
-            }
-
-            val variables = """{"shortcode":"$shortcode"}"""
-            val docId = "8845758582119845"
-
-            val graphqlUrl = "https://www.instagram.com/graphql/query"
-            val formBody = FormBody.Builder()
-                .add("variables", variables)
-                .add("doc_id", docId)
-                .add("server_timestamps", "true")
-                .build()
-
-            val graphqlResponse = try {
-                val request = Request.Builder()
-                    .url(graphqlUrl)
-                    .post(formBody)
-                    .apply {
-                        graphqlHeaders.forEach { (key: String, value: String) ->
-                            header(key, value)
-                        }
-                    }
-                    .build()
-                httpClient.newCall(request).execute()
-            } catch (e: Exception) {
-                DebugLogger.e(TAG, "GraphQL request failed: ${e.message}")
-                return@withContext null
-            }
-
-            if (!graphqlResponse.isSuccessful) {
-                DebugLogger.e(TAG, "GraphQL request failed (status: ${graphqlResponse.code})")
-                return@withContext null
-            }
-
-            DebugLogger.d(TAG, "GraphQL query successful (status: ${graphqlResponse.code})")
-
-            // Step 5: Parse response
-            val responseBody = graphqlResponse.body?.string() ?: ""
-            val jsonObject = try {
-                val jsonReader = JsonReader(StringReader(responseBody))
-                jsonReader.isLenient = true
-                JsonParser.parseReader(jsonReader).asJsonObject
-            } catch (e: Exception) {
-                DebugLogger.e(TAG, "Failed to parse GraphQL response as JSON: ${e.message}")
-                return@withContext null
-            }
-
-            val dataField = jsonObject.get("data")
-            if (dataField == null || dataField.isJsonNull) {
-                DebugLogger.e(TAG, "'data' field is null in response")
-                return@withContext null
-            }
-
-            if (!dataField.isJsonObject) {
-                DebugLogger.e(TAG, "'data' field is not a JSON object")
-                return@withContext null
-            }
-
-            val mediaData = dataField.asJsonObject.get("xdt_shortcode_media")
-            if (mediaData == null || mediaData.isJsonNull) {
-                DebugLogger.e(TAG, "'xdt_shortcode_media' is null or unavailable")
-                return@withContext null
-            }
-
-            if (!mediaData.isJsonObject) {
-                DebugLogger.e(TAG, "'xdt_shortcode_media' is not a JSON object")
-                return@withContext null
-            }
-
-            val mediaObj = mediaData.asJsonObject
-            val videoUrl = mediaObj.get("video_url")
-            
-            if (videoUrl != null && !videoUrl.isJsonNull) {
-                DebugLogger.d(TAG, "Extracted video URL")
-                return@withContext ReelInfo(
-                    cdnUrl = videoUrl.asString,
-                    caption = null,
-                    thumbnailUrl = null,
-                    creatorHandle = null,
-                )
-            }
-
-            if (mediaObj.get("is_video")?.asBoolean == true) {
-                DebugLogger.e(TAG, "Media is video but video_url field is missing")
-                return@withContext null
-            }
-
-            DebugLogger.e(TAG, "Media is not a video")
-            null
+            ReelInfo(
+                cdnUrl = audioCdnUrl,
+                caption = null,
+                thumbnailUrl = null,
+                creatorHandle = null,
+            )
         } catch (e: Exception) {
-            DebugLogger.e(TAG, "Unexpected error: ${e.message}", e)
+            DebugLogger.e(TAG, "Unexpected error while extracting CDN URL: ${e.message}", e)
             null
         }
     }
 
     fun cleanInstagramUrl(url: String): String {
-        // Remove query parameters and trailing slash from Instagram URL
-        // Example: https://www.instagram.com/p/DXJaD4sEdWZ/?igsh=... → https://www.instagram.com/p/DXJaD4sEdWZ
         return url.substringBefore('?').removeSuffix("/")
     }
 
-    private fun extractShortcodeFromUrl(url: String): String? {
-        try {
-            val parsedUrl = URL(url)
-            val path = parsedUrl.path.trim('/')
-            
-            val pattern = Pattern.compile("^(?:reels?|p)/([a-zA-Z0-9_-]+)")
-            val matcher = pattern.matcher(path)
-            
-            return if (matcher.find()) {
-                matcher.group(1)
-            } else {
-                null
+    private fun fetchReelHtml(reelPageUrl: String): String? {
+        val request = Request.Builder()
+            .url(reelPageUrl)
+            .headers(getReelPageHeaders())
+            .build()
+
+        return try {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    DebugLogger.e(TAG, "Failed to fetch reel HTML (status: ${response.code})")
+                    return null
+                }
+                val htmlText = response.body?.string().orEmpty()
+                if (htmlText.isBlank()) {
+                    DebugLogger.e(TAG, "Received empty HTML response")
+                    return null
+                }
+                htmlText
             }
         } catch (e: Exception) {
-            DebugLogger.e(TAG, "Error extracting shortcode: ${e.message}")
-            return null
+            DebugLogger.e(TAG, "Failed to fetch reel HTML: ${e.message}", e)
+            null
         }
     }
 
-    private fun extractCsrfToken(html: String): String? {
-        // Try to find in script content: {"csrf_token":"..."}
-        val scriptPattern = Pattern.compile("\"csrf_token\":\"([a-zA-Z0-9]+)\"")
-        var matcher = scriptPattern.matcher(html)
-        if (matcher.find()) {
-            return matcher.group(1)
+    private fun extractShortcodeFromUrl(url: String): String? {
+        return try {
+            val path = URL(url).path.trim('/')
+            Regex("^(?:reels?|p)/([a-zA-Z0-9_-]+)").find(path)?.groupValues?.getOrNull(1)
+        } catch (e: Exception) {
+            DebugLogger.e(TAG, "Error extracting shortcode from URL: ${e.message}", e)
+            null
         }
-
-        // Try meta tag: <meta name="csrf-token" content="...">
-        val metaPattern = Pattern.compile("""<meta[^>]*name="csrf-token"[^>]*content="([^"]*)"""")
-        matcher = metaPattern.matcher(html)
-        if (matcher.find()) {
-            return matcher.group(1)
-        }
-
-        return null
     }
 
-    private fun getBrowserHeaders(): okhttp3.Headers {
-        return okhttp3.Headers.Builder()
-            .add("Accept-Encoding", "gzip, deflate")
-            .add("Accept-Language", "en-US,en;q=0.8")
-            .add("Host", "www.instagram.com")
-            .add("Origin", "https://www.instagram.com")
-            .add("Referer", "https://www.instagram.com/")
-            .add("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36")
-            .add("X-Instagram-AJAX", "1")
-            .add("X-Requested-With", "XMLHttpRequest")
+    private fun getReelPageHeaders(): Headers {
+        return Headers.Builder()
+            .add(
+                "accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            )
+            .add("accept-language", "en-US,en;q=0.9,hi;q=0.8,ja;q=0.7")
+            .add("sec-fetch-dest", "document")
+            .add("sec-fetch-mode", "navigate")
+            .add("sec-fetch-site", "same-origin")
+            .add("sec-fetch-user", "?1")
+            .add(
+                "user-agent",
+                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
+            )
             .build()
+    }
+
+    private fun extractAudioCdnLinkFromHtml(htmlText: String): String? {
+        val links = extractCdnLinksFromHtml(htmlText)
+        return links.firstOrNull { isAudioRecord(it) }?.url
+    }
+
+    private fun isAudioRecord(record: CdnRecord): Boolean {
+        val contentType = record.contentType.orEmpty().lowercase()
+        val mimeType = record.mimeType.orEmpty().lowercase()
+        val codecs = record.codecs.orEmpty().lowercase()
+
+        return contentType == "audio" ||
+            mimeType.startsWith("audio/") ||
+            codecs.startsWith("mp4a") ||
+            codecs.startsWith("opus") ||
+            codecs.startsWith("vorbis") ||
+            codecs.startsWith("ec-3") ||
+            codecs.startsWith("ac-3")
+    }
+
+    private fun extractCdnLinksFromHtml(htmlText: String): List<CdnRecord> {
+        val records = mutableListOf<CdnRecord>()
+        val jsonBlocks = extractSjsJsonBlocks(htmlText)
+
+        for (block in jsonBlocks) {
+            val payload = try {
+                JsonParser.parseString(block)
+            } catch (_: Exception) {
+                null
+            } ?: continue
+            walkPayload(payload, records, "")
+        }
+
+        val deduped = mutableListOf<CdnRecord>()
+        val seen = mutableSetOf<String>()
+        for (record in records) {
+            if (seen.add(record.url)) {
+                deduped.add(record)
+            }
+        }
+        return deduped
+    }
+
+    private fun extractSjsJsonBlocks(htmlText: String): List<String> {
+        val scriptRegex = Regex(
+            pattern = """<script\b(?=[^>]*\btype=["']application/json["'])(?=[^>]*\bdata-sjs(?:[=\s>]|$))[^>]*>(.*?)</script>""",
+            options = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
+        )
+        return scriptRegex.findAll(htmlText)
+            .mapNotNull { match -> match.groupValues.getOrNull(1)?.trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+    }
+
+    private fun walkPayload(node: JsonElement, records: MutableList<CdnRecord>, path: String) {
+        when {
+            node.isJsonObject -> walkObject(node.asJsonObject, records, path)
+            node.isJsonArray -> walkArray(node.asJsonArray, records, path)
+        }
+    }
+
+    private fun walkObject(obj: JsonObject, records: MutableList<CdnRecord>, path: String) {
+        for ((key, value) in obj.entrySet()) {
+            val nextPath = if (path.isEmpty()) key else "$path.$key"
+
+            if (key == "video_dash_manifest" && value.isJsonPrimitive && value.asJsonPrimitive.isString) {
+                records += extractFromMpd(value.asString)
+            }
+
+            if (key in setOf("manifest_url", "progressive_url", "hls_playlist_url", "videoDashUrl") &&
+                value.isJsonPrimitive && value.asJsonPrimitive.isString
+            ) {
+                addIfValid(
+                    records,
+                    CdnRecord(
+                        url = value.asString,
+                        source = nextPath,
+                        contentType = null,
+                        mimeType = null,
+                        representationId = null,
+                        bandwidth = null,
+                        width = null,
+                        height = null,
+                        codecs = null,
+                    ),
+                )
+            }
+
+            if (key == "video_versions" && value.isJsonArray) {
+                value.asJsonArray.forEachIndexed { index, item ->
+                    if (!item.isJsonObject) return@forEachIndexed
+                    val entry = item.asJsonObject
+                    val url = entry.getAsJsonPrimitiveOrNull("url")?.asString ?: return@forEachIndexed
+
+                    addIfValid(
+                        records,
+                        CdnRecord(
+                            url = url,
+                            source = "$nextPath[$index].url",
+                            contentType = entry.getAsJsonPrimitiveOrNull("content_type")?.asString,
+                            mimeType = entry.getAsJsonPrimitiveOrNull("mime_type")?.asString,
+                            representationId = null,
+                            bandwidth = null,
+                            width = entry.getAsJsonPrimitiveOrNull("width")?.asString,
+                            height = entry.getAsJsonPrimitiveOrNull("height")?.asString,
+                            codecs = entry.getAsJsonPrimitiveOrNull("codecs")?.asString,
+                        ),
+                    )
+                }
+            }
+
+            walkPayload(value, records, nextPath)
+        }
+    }
+
+    private fun walkArray(array: JsonArray, records: MutableList<CdnRecord>, path: String) {
+        array.forEachIndexed { index, item ->
+            walkPayload(item, records, "$path[$index]")
+        }
+    }
+
+    private fun extractFromMpd(manifestXml: String): List<CdnRecord> {
+        val records = mutableListOf<CdnRecord>()
+        val document = try {
+            val factory = DocumentBuilderFactory.newInstance()
+            factory.isNamespaceAware = true
+            val builder = factory.newDocumentBuilder()
+            builder.parse(InputSource(StringReader(manifestXml)))
+        } catch (_: Exception) {
+            return records
+        }
+
+        val adaptations = document.getElementsByTagNameNS(MPD_NS, "AdaptationSet")
+        for (i in 0 until adaptations.length) {
+            val adaptation = adaptations.item(i) as? Element ?: continue
+            val adaptationContentType = adaptation.getAttributeOrNull("contentType")
+            val representations = adaptation.getElementsByTagNameNS(MPD_NS, "Representation")
+
+            for (j in 0 until representations.length) {
+                val rep = representations.item(j) as? Element ?: continue
+                val baseUrls = rep.getElementsByTagNameNS(MPD_NS, "BaseURL")
+                if (baseUrls.length == 0) continue
+                val baseUrlText = baseUrls.item(0)?.textContent?.trim().orEmpty()
+                if (baseUrlText.isEmpty()) continue
+
+                addIfValid(
+                    records,
+                    CdnRecord(
+                        url = baseUrlText,
+                        source = "video_dash_manifest.BaseURL",
+                        contentType = adaptationContentType ?: rep.getAttributeOrNull("mimeType"),
+                        mimeType = rep.getAttributeOrNull("mimeType"),
+                        representationId = rep.getAttributeOrNull("id"),
+                        bandwidth = rep.getAttributeOrNull("bandwidth"),
+                        width = rep.getAttributeOrNull("width"),
+                        height = rep.getAttributeOrNull("height"),
+                        codecs = rep.getAttributeOrNull("codecs"),
+                    ),
+                )
+            }
+        }
+        return records
+    }
+
+    private fun addIfValid(records: MutableList<CdnRecord>, record: CdnRecord) {
+        val candidate = record.url.trim().replace("&amp;", "&")
+        if (!isHttpUrl(candidate)) return
+        records.add(record.copy(url = candidate))
+    }
+
+    private fun isHttpUrl(url: String): Boolean {
+        return try {
+            val uri = URI(url)
+            (uri.scheme == "http" || uri.scheme == "https") && !uri.host.isNullOrBlank()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun JsonObject.getAsJsonPrimitiveOrNull(key: String) =
+        this.get(key)?.takeIf { it.isJsonPrimitive }
+
+    private fun Element.getAttributeOrNull(name: String): String? {
+        val value = getAttribute(name).trim()
+        return value.ifEmpty { null }
     }
 }

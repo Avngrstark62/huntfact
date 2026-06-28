@@ -124,6 +124,18 @@ class SecuritySettings(SectionSettings):
     allowed_cdn_host_suffixes: list[str] = ["fbcdn.net", "cdninstagram.com"]
 
 
+class LoggingSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="LOG_",
+    )
+    level: str = "INFO"
+    format: str = "json"
+    include_source: bool = False
+    service_name: str = "huntfact-backend"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
@@ -145,5 +157,6 @@ class Settings(BaseSettings):
     workflow_admission: WorkflowAdmissionSettings = Field(default_factory=WorkflowAdmissionSettings)
     workflow_cleanup: WorkflowCleanupSettings = Field(default_factory=WorkflowCleanupSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
 settings = Settings()

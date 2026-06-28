@@ -1,9 +1,20 @@
+import logging
+import time
+import uuid
+
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import aio_pika
 
-from logging_config import setup_logging, get_logger
+from logging_config import (
+    clear_request_id,
+    get_logger,
+    hash_user_id,
+    log_event,
+    set_request_id,
+    setup_logging,
+)
 from config import settings
 from router import router
 from db.database import db, Base
@@ -21,9 +32,72 @@ class App:
             title=settings.app.name,
             debug=settings.app.debug,
         )
+        self._register_middleware()
         self._register_exception_handlers()
         self._register_startup_shutdown()
         self._register_routes()
+
+    def _register_middleware(self):
+        @self.app.middleware("http")
+        async def request_logging_middleware(request: Request, call_next):
+            request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+            request.state.request_id = request_id
+            set_request_id(request_id)
+            started_at = time.perf_counter()
+            auth_user = getattr(request.state, "authenticated_user", None)
+
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="http.request.received",
+                status="started",
+                message="HTTP request received",
+                component="api",
+                request_id=request_id,
+                method=request.method,
+                path=request.url.path,
+                client_ip=request.client.host if request.client else None,
+                user_id_hash=hash_user_id(getattr(auth_user, "sub", None)) if auth_user else None,
+            )
+
+            try:
+                response = await call_next(request)
+                duration_ms = int((time.perf_counter() - started_at) * 1000)
+                response.headers["X-Request-ID"] = request_id
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="http.request.completed",
+                    status="succeeded",
+                    message="HTTP request completed",
+                    component="api",
+                    request_id=request_id,
+                    method=request.method,
+                    path=request.url.path,
+                    status_code=response.status_code,
+                    duration_ms=duration_ms,
+                )
+                return response
+            except Exception as exc:
+                duration_ms = int((time.perf_counter() - started_at) * 1000)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="http.request.failed",
+                    status="failed",
+                    message="HTTP request failed",
+                    component="api",
+                    request_id=request_id,
+                    method=request.method,
+                    path=request.url.path,
+                    duration_ms=duration_ms,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                    exc_info=True,
+                )
+                raise
+            finally:
+                clear_request_id()
 
     def _register_exception_handlers(self):
         @self.app.exception_handler(RequestValidationError)
@@ -49,7 +123,18 @@ class App:
 
         @self.app.exception_handler(Exception)
         async def unhandled_exception_handler(request: Request, exc: Exception):
-            logger.error("Unhandled exception: %s", str(exc), exc_info=True)
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="app.lifecycle.failed",
+                status="failed",
+                message="Unhandled exception",
+                component="api",
+                request_id=getattr(request.state, "request_id", None),
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                exc_info=True,
+            )
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
@@ -64,9 +149,26 @@ class App:
             try:
                 Base.metadata.create_all(bind=db.engine)
                 db.is_healthy = True
-                logger.info("Database initialized successfully")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.succeeded",
+                    status="succeeded",
+                    message="Database initialized",
+                    component="app",
+                )
             except Exception as e:
-                logger.error(f"Failed to initialize database: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="app.lifecycle.failed",
+                    status="failed",
+                    message="Failed to initialize database",
+                    component="app",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
                 db.is_healthy = False
             
             try:
@@ -111,45 +213,147 @@ class App:
                     },
                 )
                 rabbitmq.is_healthy = True
-                logger.info("RabbitMQ connection established successfully")
-                logger.info(f"Queue '{settings.rabbitmq.task_queue_name}' declared successfully")
-                logger.info(f"Queue '{settings.rabbitmq.workflow_queue_name}' declared successfully")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.succeeded",
+                    status="succeeded",
+                    message="RabbitMQ initialized and queues declared",
+                    component="app",
+                    task_queue=settings.rabbitmq.task_queue_name,
+                    workflow_queue=settings.rabbitmq.workflow_queue_name,
+                )
             except Exception as e:
-                logger.error(f"Failed to initialize RabbitMQ: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="app.lifecycle.failed",
+                    status="failed",
+                    message="Failed to initialize RabbitMQ",
+                    component="app",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
                 rabbitmq.is_healthy = False
             
             try:
                 initialize_firebase()
-                logger.info("Firebase initialized successfully")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.succeeded",
+                    status="succeeded",
+                    message="Firebase initialized",
+                    component="app",
+                )
             except Exception as e:
-                logger.error(f"Failed to initialize Firebase: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="app.lifecycle.failed",
+                    status="failed",
+                    message="Failed to initialize Firebase",
+                    component="app",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
             
             try:
                 chroma_client.connect()
-                logger.info("ChromaDB connection established successfully")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.succeeded",
+                    status="succeeded",
+                    message="ChromaDB connected",
+                    component="app",
+                )
             except Exception as e:
-                logger.error(f"Failed to initialize ChromaDB: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="app.lifecycle.failed",
+                    status="failed",
+                    message="Failed to initialize ChromaDB",
+                    component="app",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
                 chroma_client.is_healthy = False
 
         @self.app.on_event("shutdown")
         async def shutdown_event():
             try:
                 db.engine.dispose()
-                logger.info("Database connections closed")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.cancelled",
+                    status="cancelled",
+                    message="Database connections closed",
+                    component="app",
+                )
             except Exception as e:
-                logger.error(f"Error closing database: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="app.lifecycle.failed",
+                    status="failed",
+                    message="Error closing database",
+                    component="app",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
             
             try:
                 await rabbitmq.close()
-                logger.info("RabbitMQ connection closed")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.cancelled",
+                    status="cancelled",
+                    message="RabbitMQ connection closed",
+                    component="app",
+                )
             except Exception as e:
-                logger.error(f"Error closing RabbitMQ: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="app.lifecycle.failed",
+                    status="failed",
+                    message="Error closing RabbitMQ",
+                    component="app",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
             
             try:
                 chroma_client.disconnect()
-                logger.info("ChromaDB connection closed")
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.cancelled",
+                    status="cancelled",
+                    message="ChromaDB connection closed",
+                    component="app",
+                )
             except Exception as e:
-                logger.error(f"Error closing ChromaDB: {str(e)}", exc_info=True)
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="app.lifecycle.failed",
+                    status="failed",
+                    message="Error closing ChromaDB",
+                    component="app",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
 
     def _register_routes(self):
         self.app.include_router(router)

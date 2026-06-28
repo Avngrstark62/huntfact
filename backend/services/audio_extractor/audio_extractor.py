@@ -1,8 +1,9 @@
 import asyncio
+import logging
 from typing import Dict, Optional
 from urllib.parse import urlparse
 
-from logging_config import get_logger
+from logging_config import get_logger, log_event, sanitize_url
 
 logger = get_logger("services.audio_extractor.audio_extractor")
 
@@ -44,7 +45,16 @@ async def extract_audio(
     # Validate URL
     if not _validate_url(url):
         error_msg = f"Invalid URL format: {url}"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="Invalid CDN URL format for audio extraction",
+            component="services.audio_extractor",
+            cdn_link=sanitize_url(url),
+            error_message=error_msg,
+        )
         return {"audio": None, "format": "mp3", "error": error_msg}
 
     # ---------- FAST PATH (copy AAC) ----------
@@ -69,8 +79,16 @@ async def extract_audio(
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-            logger.debug("Fast path timeout: timeout=%ss url=%s", timeout, url)
-            logger.warning(f"Fast path ffmpeg timeout, falling back")
+            log_event(
+                logger,
+                level=logging.WARNING,
+                event="task.timed_out",
+                status="timed_out",
+                message="Fast path ffmpeg timeout; falling back",
+                component="services.audio_extractor",
+                timeout_seconds=timeout,
+                cdn_link=sanitize_url(url),
+            )
             aac_audio = None
 
         if aac_audio:
@@ -97,26 +115,78 @@ async def extract_audio(
                 except asyncio.TimeoutError:
                     convert.kill()
                     await convert.wait()
-                    logger.debug("AAC->MP3 timeout: timeout=%ss url=%s", timeout, url)
-                    logger.warning(f"AAC→MP3 conversion timeout, falling back")
+                    log_event(
+                        logger,
+                        level=logging.WARNING,
+                        event="task.timed_out",
+                        status="timed_out",
+                        message="AAC to MP3 conversion timeout; falling back",
+                        component="services.audio_extractor",
+                        timeout_seconds=timeout,
+                        cdn_link=sanitize_url(url),
+                    )
                     mp3_audio = None
 
                 if mp3_audio:
-                    logger.info(f"Successfully extracted audio via fast path: {url}")
+                    log_event(
+                        logger,
+                        level=logging.INFO,
+                        event="task.succeeded",
+                        status="succeeded",
+                        message="Audio extracted via fast path",
+                        component="services.audio_extractor",
+                        cdn_link=sanitize_url(url),
+                        result_summary={"audio_bytes": len(mp3_audio)},
+                    )
                     return {"audio": mp3_audio, "format": "mp3", "error": None}
             except Exception as e:
-                logger.debug("AAC->MP3 conversion failed: url=%s error=%s", url, str(e))
-                logger.warning(f"AAC→MP3 conversion failed, falling back: {e}")
+                log_event(
+                    logger,
+                    level=logging.WARNING,
+                    event="task.failed",
+                    status="retrying",
+                    message="AAC to MP3 conversion failed; falling back",
+                    component="services.audio_extractor",
+                    cdn_link=sanitize_url(url),
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                )
 
     except FileNotFoundError as e:
         error_msg = f"FFmpeg not found: {e}"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="FFmpeg not found",
+            component="services.audio_extractor",
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         return {"audio": None, "format": "mp3", "error": error_msg}
     except Exception as e:
-        logger.debug("Fast path failed: url=%s error=%s", url, str(e))
-        logger.warning(f"Fast path failed, falling back: {e}")
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="retrying",
+            message="Fast path failed; falling back",
+            component="services.audio_extractor",
+            cdn_link=sanitize_url(url),
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
 
-    logger.info("Fast path failed, falling back to direct MP3 encode...")
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.retrying",
+        status="retrying",
+        message="Fast path failed, using direct MP3 fallback",
+        component="services.audio_extractor",
+        cdn_link=sanitize_url(url),
+    )
 
     # ---------- FALLBACK (direct MP3 encode) ----------
     try:
@@ -140,38 +210,88 @@ async def extract_audio(
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-            logger.debug("Fallback timeout: timeout=%ss url=%s", timeout, url)
             error_msg = f"Audio extraction timeout after {timeout}s"
-            logger.error(error_msg)
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="task.timed_out",
+                status="timed_out",
+                message="Fallback audio extraction timeout",
+                component="services.audio_extractor",
+                timeout_seconds=timeout,
+                cdn_link=sanitize_url(url),
+                error_message=error_msg,
+            )
             return {"audio": None, "format": "mp3", "error": error_msg}
 
         if process.returncode != 0:
             stderr_text = err.decode("utf-8", errors="ignore")
-            logger.debug(
-                "Fallback ffmpeg non-zero exit: returncode=%s url=%s stderr=%s",
-                process.returncode,
-                url,
-                stderr_text,
-            )
             error_msg = f"FFmpeg failed: {stderr_text}"
-            logger.error(error_msg)
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="task.failed",
+                status="failed",
+                message="Fallback ffmpeg returned non-zero exit",
+                component="services.audio_extractor",
+                cdn_link=sanitize_url(url),
+                return_code=process.returncode,
+                error_message=error_msg,
+            )
             return {"audio": None, "format": "mp3", "error": error_msg}
 
         if not mp3_audio:
-            logger.debug("Fallback produced empty output: url=%s returncode=%s", url, process.returncode)
             error_msg = "FFmpeg produced no output"
-            logger.error(error_msg)
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="task.failed",
+                status="failed",
+                message="Fallback ffmpeg produced no output",
+                component="services.audio_extractor",
+                cdn_link=sanitize_url(url),
+                return_code=process.returncode,
+                error_message=error_msg,
+            )
             return {"audio": None, "format": "mp3", "error": error_msg}
 
-        logger.info(f"Successfully extracted audio via fallback: {url}")
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="task.succeeded",
+            status="succeeded",
+            message="Audio extracted via fallback",
+            component="services.audio_extractor",
+            cdn_link=sanitize_url(url),
+            result_summary={"audio_bytes": len(mp3_audio)},
+        )
         return {"audio": mp3_audio, "format": "mp3", "error": None}
 
     except FileNotFoundError as e:
         error_msg = f"FFmpeg not found: {e}"
-        logger.error(error_msg)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="FFmpeg not found in fallback",
+            component="services.audio_extractor",
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         return {"audio": None, "format": "mp3", "error": error_msg}
     except Exception as e:
-        logger.debug("Fallback unexpected error: url=%s error=%s", url, str(e))
         error_msg = f"Unexpected error during audio extraction: {e}"
-        logger.error(error_msg, exc_info=True)
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="Unexpected fallback audio extraction error",
+            component="services.audio_extractor",
+            cdn_link=sanitize_url(url),
+            error_type=type(e).__name__,
+            error_message=error_msg,
+            exc_info=True,
+        )
         return {"audio": None, "format": "mp3", "error": error_msg}
