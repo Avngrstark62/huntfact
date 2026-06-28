@@ -26,6 +26,15 @@ COMMON_ERROR_RESPONSES = {
 }
 
 
+def _mask_user_id(user_id: str) -> str:
+    value = (user_id or "").strip()
+    if not value:
+        return "<empty>"
+    if len(value) <= 8:
+        return f"{value[:2]}***{value[-2:]}"
+    return f"{value[:4]}***{value[-3:]}"
+
+
 @router.get(
     "/health",
     response_model=HealthResponse,
@@ -79,10 +88,12 @@ async def start_hunt(
     """
     try:
         logger.info(
-            "Starting hunt for user_id=%s video=%s cdn=%s",
-            authenticated_user.sub,
-            request.video_link,
-            request.cdn_link,
+            "Starting hunt for user_id=%s platform=%s has_thumbnail=%s has_caption=%s has_creator_handle=%s",
+            _mask_user_id(authenticated_user.sub),
+            request.platform,
+            bool(request.thumbnail_url),
+            bool(request.caption),
+            bool(request.creator_handle),
         )
 
         hunt_limit_error = enforce_user_hunt_limit(session, authenticated_user.sub)
@@ -171,7 +182,11 @@ async def get_hunt(
     Fetch one hunt by id.
     """
     try:
-        logger.info("Fetching hunt for user_id=%s hunt_id=%s", authenticated_user.sub, hunt_id)
+        logger.info(
+            "Fetching hunt for user_id=%s hunt_id=%s",
+            _mask_user_id(authenticated_user.sub),
+            hunt_id,
+        )
         hunt = db.get_hunt_for_user(session, hunt_id, authenticated_user.sub)
         if hunt is None:
             raise HTTPException(
@@ -224,7 +239,7 @@ async def get_user_hunts(
     Fetch all hunts associated with the authenticated user.
     """
     try:
-        logger.info("Fetching hunts for user_id=%s", authenticated_user.sub)
+        logger.info("Fetching hunts for user_id=%s", _mask_user_id(authenticated_user.sub))
         hunts = db.get_hunts_by_user_id(session, authenticated_user.sub)
         responses: list[HuntResponse] = []
         for hunt in hunts:

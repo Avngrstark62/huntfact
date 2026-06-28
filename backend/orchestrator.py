@@ -1,5 +1,4 @@
 import asyncio
-import json
 import signal
 
 from pydantic import ValidationError
@@ -454,12 +453,11 @@ async def handle_workflow_message(msg: dict) -> None:
         )
     except Exception as e:
         logger.error(
-            "Unexpected workflow exception: workflow_id=%s hunt_id=%s step=%s error=%s body=%s",
+            "Unexpected workflow exception: workflow_id=%s hunt_id=%s step=%s error=%s",
             workflow_id,
             hunt_id,
             current_step,
             str(e),
-            json.dumps(msg)[:500],
             exc_info=True,
         )
         return

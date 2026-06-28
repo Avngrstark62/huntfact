@@ -4,6 +4,15 @@ from logging_config import get_logger
 logger = get_logger("services.notification_sender.notification_sender")
 
 
+def _mask_fcm_token(fcm_token: str) -> str:
+    token = (fcm_token or "").strip()
+    if not token:
+        return "<empty>"
+    if len(token) <= 10:
+        return f"{token[:2]}***{token[-2:]}"
+    return f"{token[:6]}***{token[-4:]}"
+
+
 async def send_notification(hunt_id: int, fcm_token: str) -> Dict[str, str | bool | None]:
     """
     Send lightweight completion notification with hunt id.
@@ -15,7 +24,7 @@ async def send_notification(hunt_id: int, fcm_token: str) -> Dict[str, str | boo
     Returns:
         Dict with sent status and error.
     """
-    logger.info("Sending completion notification to device: %s", fcm_token)
+    logger.info("Sending completion notification to device token=%s", _mask_fcm_token(fcm_token))
 
     try:
         from firebase_admin import messaging
