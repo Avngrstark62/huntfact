@@ -76,6 +76,46 @@ class Database:
         session.refresh(hunt)
         return hunt
 
+    def get_or_create_hunt_in_txn(
+        self,
+        session: Session,
+        video_link: str,
+        thumbnail_url: str | None = None,
+        caption: str | None = None,
+        creator_handle: str | None = None,
+        platform: str = "instagram",
+    ):
+        """
+        Transaction-friendly version of get_or_create_hunt.
+        Uses savepoint semantics and does not commit the outer transaction.
+        """
+        from db.models.hunt import Hunt
+
+        existing_hunt = self.get_hunt_by_video_link(session, video_link)
+        if existing_hunt is not None:
+            return existing_hunt
+
+        try:
+            with session.begin_nested():
+                hunt = Hunt(
+                    video_link=video_link,
+                    status="queued",
+                    thumbnail_url=thumbnail_url,
+                    caption=caption,
+                    creator_handle=creator_handle,
+                    platform=platform,
+                )
+                session.add(hunt)
+                session.flush()
+                session.refresh(hunt)
+                return hunt
+        except IntegrityError:
+            # Concurrent request may have created the same video_link.
+            existing_hunt = self.get_hunt_by_video_link(session, video_link)
+            if existing_hunt is None:
+                raise
+            return existing_hunt
+
     def get_hunt(self, session: Session, hunt_id: int):
         from db.models.hunt import Hunt
 
@@ -351,6 +391,38 @@ class Database:
             raise
         session.refresh(hunt_user)
         return hunt_user
+
+    def add_hunt_user_in_txn(self, session: Session, hunt_id: int, user_id: str):
+        """
+        Transaction-friendly version of add_hunt_user.
+        Uses savepoint semantics and does not commit the outer transaction.
+        """
+        from db.models.hunt_user import HuntUser
+
+        existing = (
+            session.query(HuntUser)
+            .filter(HuntUser.hunt_id == hunt_id, HuntUser.user_id == user_id)
+            .first()
+        )
+        if existing:
+            return existing
+
+        try:
+            with session.begin_nested():
+                hunt_user = HuntUser(hunt_id=hunt_id, user_id=user_id)
+                session.add(hunt_user)
+                session.flush()
+                session.refresh(hunt_user)
+                return hunt_user
+        except IntegrityError:
+            existing = (
+                session.query(HuntUser)
+                .filter(HuntUser.hunt_id == hunt_id, HuntUser.user_id == user_id)
+                .first()
+            )
+            if existing is None:
+                raise
+            return existing
 
     def get_users_by_hunt_id(self, session: Session, hunt_id: int):
         from db.models.hunt_user import HuntUser

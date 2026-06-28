@@ -67,17 +67,22 @@ async def start_hunt(
             return hunt_limit_response
 
         video_link = str(request.video_link)
-        existing_hunt = db.get_or_create_hunt(
-            session,
-            video_link,
-            thumbnail_url=str(request.thumbnail_url) if request.thumbnail_url else None,
-            caption=request.caption,
-            creator_handle=request.creator_handle,
-            platform=request.platform,
-        )
-        logger.info("Created or reused hunt with id: %s", existing_hunt.id)
+        try:
+            existing_hunt = db.get_or_create_hunt_in_txn(
+                session,
+                video_link,
+                thumbnail_url=str(request.thumbnail_url) if request.thumbnail_url else None,
+                caption=request.caption,
+                creator_handle=request.creator_handle,
+                platform=request.platform,
+            )
+            db.add_hunt_user_in_txn(session, existing_hunt.id, authenticated_user.sub)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
 
-        db.add_hunt_user(session, existing_hunt.id, authenticated_user.sub)
+        logger.info("Created or reused hunt with id: %s", existing_hunt.id)
         if existing_hunt.status == HUNT_STATUS_COMPLETED:
             await publish_notify_best_effort(existing_hunt.id, request.fcm_token)
             return StartHuntResponse(
