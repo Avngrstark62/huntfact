@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Integer, String, func
+from sqlalchemy import JSON, Column, DateTime, Integer, String, func
 from db.database import Base
 
 
@@ -8,7 +8,7 @@ class Hunt(Base):
     id = Column(Integer, primary_key=True, index=True)
     video_link = Column(String, nullable=False, unique=True)
     status = Column(String, nullable=False, default="queued")
-    result = Column(String, nullable=True)
+    result = Column(JSON, nullable=True)
     title = Column(String, nullable=True)
     summary = Column(String, nullable=True)
     trust_score = Column(Integer, nullable=True)

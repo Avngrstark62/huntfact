@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from config import settings
-from typing import Generator
+from typing import Any, Generator
 
 Base = declarative_base()
 DEFAULT_USER_HUNTS_LIMIT = 30
@@ -36,7 +37,7 @@ class Database:
 
     # -------- CRUD methods --------
 
-    def create_hunt(
+    def get_or_create_hunt(
         self,
         session: Session,
         video_link: str,
@@ -46,6 +47,10 @@ class Database:
         platform: str = "instagram",
     ):
         from db.models.hunt import Hunt
+
+        existing_hunt = self.get_hunt_by_video_link(session, video_link)
+        if existing_hunt is not None:
+            return existing_hunt
 
         hunt = Hunt(
             video_link=video_link,
@@ -58,12 +63,58 @@ class Database:
         session.add(hunt)
         try:
             session.commit()
+        except IntegrityError:
+            session.rollback()
+            existing_hunt = self.get_hunt_by_video_link(session, video_link)
+            if existing_hunt is None:
+                raise
+            return existing_hunt
         except:
             session.rollback()
             raise
 
         session.refresh(hunt)
         return hunt
+
+    def get_or_create_hunt_in_txn(
+        self,
+        session: Session,
+        video_link: str,
+        thumbnail_url: str | None = None,
+        caption: str | None = None,
+        creator_handle: str | None = None,
+        platform: str = "instagram",
+    ):
+        """
+        Transaction-friendly version of get_or_create_hunt.
+        Uses savepoint semantics and does not commit the outer transaction.
+        """
+        from db.models.hunt import Hunt
+
+        existing_hunt = self.get_hunt_by_video_link(session, video_link)
+        if existing_hunt is not None:
+            return existing_hunt
+
+        try:
+            with session.begin_nested():
+                hunt = Hunt(
+                    video_link=video_link,
+                    status="queued",
+                    thumbnail_url=thumbnail_url,
+                    caption=caption,
+                    creator_handle=creator_handle,
+                    platform=platform,
+                )
+                session.add(hunt)
+                session.flush()
+                session.refresh(hunt)
+                return hunt
+        except IntegrityError:
+            # Concurrent request may have created the same video_link.
+            existing_hunt = self.get_hunt_by_video_link(session, video_link)
+            if existing_hunt is None:
+                raise
+            return existing_hunt
 
     def get_hunt(self, session: Session, hunt_id: int):
         from db.models.hunt import Hunt
@@ -86,11 +137,158 @@ class Database:
 
         return session.query(Hunt).filter(Hunt.video_link == video_link).first()
 
+    def create_workflow_admission(
+        self,
+        session: Session,
+        workflow_id: str,
+        video_link: str,
+        hunt_id: int,
+    ) -> bool:
+        from db.models.workflow_admission import WorkflowAdmission
+
+        row = WorkflowAdmission(
+            workflow_id=workflow_id,
+            video_link=video_link,
+            hunt_id=hunt_id,
+        )
+        session.add(row)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            return False
+        except:
+            session.rollback()
+            raise
+        return True
+
+    def delete_workflow_admission(self, session: Session, workflow_id: str) -> bool:
+        from db.models.workflow_admission import WorkflowAdmission
+
+        deleted_rows = (
+            session.query(WorkflowAdmission)
+            .filter(WorkflowAdmission.workflow_id == workflow_id)
+            .delete(synchronize_session=False)
+        )
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        return deleted_rows > 0
+
+    def clear_workflow_admission_if_hunt_failed(
+        self,
+        session: Session,
+        workflow_id: str,
+        hunt_id: int,
+    ) -> bool:
+        from db.models.hunt import Hunt
+        from db.models.workflow_admission import WorkflowAdmission
+
+        hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
+        if hunt is None or hunt.status != "failed":
+            return False
+
+        deleted_rows = (
+            session.query(WorkflowAdmission)
+            .filter(WorkflowAdmission.workflow_id == workflow_id)
+            .delete(synchronize_session=False)
+        )
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        return deleted_rows > 0
+
+    def mark_stale_processing_hunts_failed(
+        self,
+        session: Session,
+        stale_minutes: int = 5,
+    ) -> list[int]:
+        from db.models.hunt import Hunt
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+        stale_hunts = (
+            session.query(Hunt)
+            .filter(Hunt.status == "processing", Hunt.updated_at < cutoff)
+            .all()
+        )
+        stale_ids: list[int] = []
+        for hunt in stale_hunts:
+            stale_ids.append(hunt.id)
+            hunt.status = "failed"
+            hunt.error_message = f"Marked failed by cleanup after {stale_minutes} minutes in processing"
+            hunt.completed_at = None
+
+        if stale_hunts:
+            try:
+                session.commit()
+            except:
+                session.rollback()
+                raise
+        return stale_ids
+
+    def mark_stale_queued_hunts_failed(
+        self,
+        session: Session,
+        stale_minutes: int = 30,
+    ) -> list[int]:
+        from db.models.hunt import Hunt
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+        stale_hunts = (
+            session.query(Hunt)
+            .filter(Hunt.status == "queued", Hunt.updated_at < cutoff)
+            .all()
+        )
+        stale_ids: list[int] = []
+        for hunt in stale_hunts:
+            stale_ids.append(hunt.id)
+            hunt.status = "failed"
+            hunt.error_message = f"Marked failed by cleanup after {stale_minutes} minutes in queued"
+            hunt.completed_at = None
+
+        if stale_hunts:
+            try:
+                session.commit()
+            except:
+                session.rollback()
+                raise
+        return stale_ids
+
+    def delete_workflow_admissions_for_failed_hunts(self, session: Session) -> int:
+        from db.models.hunt import Hunt
+        from db.models.workflow_admission import WorkflowAdmission
+
+        failed_admissions = (
+            session.query(WorkflowAdmission.workflow_id)
+            .join(Hunt, WorkflowAdmission.hunt_id == Hunt.id)
+            .filter(Hunt.status == "failed")
+            .all()
+        )
+        workflow_ids = [row[0] for row in failed_admissions]
+        if not workflow_ids:
+            return 0
+
+        deleted_rows = (
+            session.query(WorkflowAdmission)
+            .filter(WorkflowAdmission.workflow_id.in_(workflow_ids))
+            .delete(synchronize_session=False)
+        )
+        try:
+            session.commit()
+        except:
+            session.rollback()
+            raise
+        return int(deleted_rows or 0)
+
     def update_hunt_result(
         self,
         session: Session,
         hunt_id: int,
-        result: str,
+        result: Any,
         title: str,
         summary: str,
         trust_score: int,
@@ -140,39 +338,6 @@ class Database:
             raise
         session.refresh(hunt)
         return hunt
-
-    def transition_hunt_to_processing(
-        self,
-        session: Session,
-        hunt_id: int,
-        clear_result: bool = False,
-    ):
-        from db.models.hunt import Hunt
-
-        update_data = {
-            Hunt.status: "processing",
-            Hunt.error_message: None,
-            Hunt.completed_at: None,
-        }
-        if clear_result:
-            update_data[Hunt.result] = None
-
-        updated_rows = (
-            session.query(Hunt)
-            .filter(Hunt.id == hunt_id, Hunt.status != "processing")
-            .update(update_data, synchronize_session=False)
-        )
-        try:
-            session.commit()
-        except:
-            session.rollback()
-            raise
-
-        hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
-        if hunt is None:
-            return None, False
-
-        return hunt, updated_rows > 0
 
     def update_hunt_metadata(
         self,
@@ -226,6 +391,38 @@ class Database:
             raise
         session.refresh(hunt_user)
         return hunt_user
+
+    def add_hunt_user_in_txn(self, session: Session, hunt_id: int, user_id: str):
+        """
+        Transaction-friendly version of add_hunt_user.
+        Uses savepoint semantics and does not commit the outer transaction.
+        """
+        from db.models.hunt_user import HuntUser
+
+        existing = (
+            session.query(HuntUser)
+            .filter(HuntUser.hunt_id == hunt_id, HuntUser.user_id == user_id)
+            .first()
+        )
+        if existing:
+            return existing
+
+        try:
+            with session.begin_nested():
+                hunt_user = HuntUser(hunt_id=hunt_id, user_id=user_id)
+                session.add(hunt_user)
+                session.flush()
+                session.refresh(hunt_user)
+                return hunt_user
+        except IntegrityError:
+            existing = (
+                session.query(HuntUser)
+                .filter(HuntUser.hunt_id == hunt_id, HuntUser.user_id == user_id)
+                .first()
+            )
+            if existing is None:
+                raise
+            return existing
 
     def get_users_by_hunt_id(self, session: Session, hunt_id: int):
         from db.models.hunt_user import HuntUser
@@ -281,7 +478,7 @@ class Database:
             .join(HuntUser, Hunt.id == HuntUser.hunt_id)
             .filter(
                 HuntUser.user_id == user_id,
-                Hunt.status.in_(["queued", "processing", "completed"]),
+                Hunt.status.in_(["queued", "starting", "processing", "completed"]),
             )
             .count()
         )

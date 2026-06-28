@@ -6,10 +6,30 @@ import aio_pika
 
 from rmq.connection import rabbitmq
 from config import settings
-from rmq.schemas import TaskMessage, WorkflowMessage
+from rmq.schemas import (
+    TaskMessage,
+    TaskRpcResponse,
+    WorkflowMessage,
+    parse_task_rpc_response,
+)
 from logging_config import get_logger
 
 logger = get_logger("rmq.publisher")
+
+
+def _task_queue_arguments() -> dict:
+    return {
+        "x-max-priority": settings.rabbitmq.max_priority,
+        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+        "x-dead-letter-routing-key": settings.rabbitmq.task_dead_letter_routing_key,
+    }
+
+
+def _workflow_queue_arguments() -> dict:
+    return {
+        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+        "x-dead-letter-routing-key": settings.rabbitmq.workflow_dead_letter_routing_key,
+    }
 
 
 async def publish_task(task: TaskMessage):
@@ -19,7 +39,7 @@ async def publish_task(task: TaskMessage):
         await channel.declare_queue(
             settings.rabbitmq.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.rabbitmq.max_priority},
+            arguments=_task_queue_arguments(),
         )
 
         message = aio_pika.Message(
@@ -36,11 +56,11 @@ async def publish_task(task: TaskMessage):
         await channel.close()
 
 
-async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -> dict:
+async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -> TaskRpcResponse:
     """
     Publish a task and await the worker reply via RabbitMQ direct reply-to (RPC-style).
 
-    Returns the decoded JSON body from the worker response.
+    Returns the validated RPC response envelope from the worker response.
     Raises asyncio.TimeoutError if timeout is set and no reply arrives in time.
     """
     loop = asyncio.get_running_loop()
@@ -52,8 +72,9 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
             if str(message.correlation_id or "") != correlation_id:
                 return
             body = json.loads(message.body.decode())
+            parsed_response = parse_task_rpc_response(body)
             if not future.done():
-                future.set_result(body)
+                future.set_result(parsed_response)
         except Exception as e:
             if not future.done():
                 future.set_exception(e)
@@ -73,7 +94,7 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
         await channel.declare_queue(
             settings.rabbitmq.task_queue_name,
             durable=True,
-            arguments={"x-max-priority": settings.rabbitmq.max_priority},
+            arguments=_task_queue_arguments(),
         )
 
         message = aio_pika.Message(
@@ -103,6 +124,7 @@ async def publish_workflow(workflow: WorkflowMessage):
         await channel.declare_queue(
             settings.rabbitmq.workflow_queue_name,
             durable=True,
+            arguments=_workflow_queue_arguments(),
         )
 
         message = aio_pika.Message(

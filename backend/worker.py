@@ -20,6 +20,7 @@ from rmq.constants import (
 )
 from rmq.consumer import start_task_consumer
 from rmq.connection import rabbitmq
+from rmq.schemas import validate_task_step_result
 from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
@@ -75,6 +76,13 @@ async def _publish_task_reply(
         await reply_channel.close()
 
 
+def _validated_step_result(step: str, result: dict) -> dict:
+    try:
+        return validate_task_step_result(step, result)
+    except Exception as e:
+        raise RuntimeError(f"Invalid success payload for step {step}: {str(e)}") from e
+
+
 async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
     """Run one pipeline step. Sends RPC reply when the incoming message has reply_to."""
     step = None
@@ -91,11 +99,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("Audio extraction handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -106,11 +115,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("Transcription handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -121,11 +131,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("transcription_corrector handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -136,11 +147,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("Translation handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -151,11 +163,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("Claim cluster extraction handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -166,11 +179,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("URL fetcher handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -181,11 +195,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("Web scraper handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -196,11 +211,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("RAG storage handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -211,11 +227,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("Claim verifier handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -226,11 +243,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("save_result_to_db handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -241,11 +259,12 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
                 raise RuntimeError("notify handler returned no result")
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            validated_result = _validated_step_result(step, result)
             if reply_to:
                 await _publish_task_reply(
                     raw_message,
                     reply_to,
-                    {"status": "success", "step": step, "result": result},
+                    {"status": "success", "step": step, "result": validated_result},
                 )
             return
 
@@ -279,7 +298,14 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
 
 async def main():
     setup_logging()
-    initialize_firebase()
+    try:
+        initialize_firebase()
+    except Exception as e:
+        logger.error(
+            "Firebase initialization failed at startup; worker will continue and notification tasks may fail: %s",
+            str(e),
+            exc_info=True,
+        )
     logger.info("Starting worker...")
 
     loop = asyncio.get_event_loop()

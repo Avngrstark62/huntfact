@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+import aio_pika
 
 from logging_config import setup_logging, get_logger
 from config import settings
@@ -18,8 +21,42 @@ class App:
             title=settings.app.name,
             debug=settings.app.debug,
         )
+        self._register_exception_handlers()
         self._register_startup_shutdown()
         self._register_routes()
+
+    def _register_exception_handlers(self):
+        @self.app.exception_handler(RequestValidationError)
+        async def validation_exception_handler(request: Request, exc: RequestValidationError):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "detail": "Request validation failed",
+                    "code": "VALIDATION_ERROR",
+                },
+            )
+
+        @self.app.exception_handler(HTTPException)
+        async def http_exception_handler(request: Request, exc: HTTPException):
+            detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "detail": detail,
+                    "code": "HTTP_ERROR",
+                },
+            )
+
+        @self.app.exception_handler(Exception)
+        async def unhandled_exception_handler(request: Request, exc: Exception):
+            logger.error("Unhandled exception: %s", str(exc), exc_info=True)
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "detail": "Internal Server Error",
+                    "code": "INTERNAL_ERROR",
+                },
+            )
 
     def _register_startup_shutdown(self):
         @self.app.on_event("startup")
@@ -35,14 +72,43 @@ class App:
             try:
                 await rabbitmq.connect()
                 channel = await rabbitmq.get_channel()
+                dlx = await channel.declare_exchange(
+                    settings.rabbitmq.dead_letter_exchange_name,
+                    aio_pika.ExchangeType.DIRECT,
+                    durable=True,
+                )
+                task_dlq = await channel.declare_queue(
+                    settings.rabbitmq.task_dead_letter_queue_name,
+                    durable=True,
+                )
+                workflow_dlq = await channel.declare_queue(
+                    settings.rabbitmq.workflow_dead_letter_queue_name,
+                    durable=True,
+                )
+                await task_dlq.bind(
+                    dlx,
+                    routing_key=settings.rabbitmq.task_dead_letter_routing_key,
+                )
+                await workflow_dlq.bind(
+                    dlx,
+                    routing_key=settings.rabbitmq.workflow_dead_letter_routing_key,
+                )
                 await channel.declare_queue(
                     settings.rabbitmq.task_queue_name,
                     durable=True,
-                    arguments={"x-max-priority": settings.rabbitmq.max_priority}
+                    arguments={
+                        "x-max-priority": settings.rabbitmq.max_priority,
+                        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+                        "x-dead-letter-routing-key": settings.rabbitmq.task_dead_letter_routing_key,
+                    },
                 )
                 await channel.declare_queue(
                     settings.rabbitmq.workflow_queue_name,
                     durable=True,
+                    arguments={
+                        "x-dead-letter-exchange": settings.rabbitmq.dead_letter_exchange_name,
+                        "x-dead-letter-routing-key": settings.rabbitmq.workflow_dead_letter_routing_key,
+                    },
                 )
                 rabbitmq.is_healthy = True
                 logger.info("RabbitMQ connection established successfully")

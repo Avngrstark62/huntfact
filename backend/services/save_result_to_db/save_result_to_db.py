@@ -1,4 +1,3 @@
-import json
 from typing import Any, Dict
 
 from pydantic import BaseModel
@@ -7,6 +6,7 @@ from config import settings
 from db.database import db
 from llm import llm
 from logging_config import get_logger
+from result_schema import FactCheckResult, FactCheckRow
 
 logger = get_logger("services.save_result_to_db.save_result_to_db")
 
@@ -16,46 +16,35 @@ class HuntMetadataResponse(BaseModel):
     summary: str
 
 
-def _extract_rows(table: Dict[str, Any]) -> list[Dict[str, Any]]:
+def _extract_rows(table: Dict[str, Any]) -> list[FactCheckRow]:
     rows = table.get("rows")
     if not isinstance(rows, list):
         return []
-    return [row for row in rows if isinstance(row, dict)]
+    return FactCheckResult.model_validate(rows).root
 
 
-def _compute_trust_score(table: Dict[str, Any]) -> int:
-    confidences: list[int] = []
-    for row in _extract_rows(table):
-        raw_confidence = row.get("confidence")
-        try:
-            confidence = int(raw_confidence)
-        except (TypeError, ValueError):
-            continue
-        confidences.append(max(0, min(100, confidence)))
-
-    if not confidences:
+def _compute_trust_score(rows: list[FactCheckRow]) -> int:
+    if not rows:
         return 0
 
-    return round(sum(confidences) / len(confidences))
+    return round(sum(row.confidence for row in rows) / len(rows))
 
 
-def _build_reel_recall_title(rows: list[Dict[str, Any]]) -> str:
+def _build_reel_recall_title(rows: list[FactCheckRow]) -> str:
     for row in rows:
-        claim = str(row.get("claim", "")).strip()
-        if claim:
-            words = claim.split()
+        words = row.claim.split()
+        if words:
             return " ".join(words[:10]).strip()
     return "Reel fact check"
 
 
-async def _generate_hunt_metadata(table: Dict[str, Any]) -> tuple[str, str]:
-    rows = _extract_rows(table)
+async def _generate_hunt_metadata(rows: list[FactCheckRow]) -> tuple[str, str]:
     if not rows:
         return "Fact-check result unavailable", "No verifiable claims were available in this run."
 
     verdict_counts: dict[str, int] = {}
     for row in rows:
-        verdict = str(row.get("verdict", "unverified")).strip().lower() or "unverified"
+        verdict = row.verdict
         verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
 
     top_verdict = max(verdict_counts.items(), key=lambda item: item[1])[0]
@@ -67,17 +56,13 @@ async def _generate_hunt_metadata(table: Dict[str, Any]) -> tuple[str, str]:
 
     row_summaries: list[str] = []
     for index, row in enumerate(rows, 1):
-        claim = str(row.get("claim", "")).strip()
-        verdict = str(row.get("verdict", "")).strip()
-        confidence = row.get("confidence")
-        explanation = str(row.get("explanation", "")).strip()
         row_summaries.append(
             "\n".join(
                 [
-                    f"Claim {index}: {claim}",
-                    f"Verdict: {verdict}",
-                    f"Confidence: {confidence}",
-                    f"Explanation: {explanation}",
+                    f"Claim {index}: {row.claim}",
+                    f"Verdict: {row.verdict}",
+                    f"Confidence: {row.confidence}",
+                    f"Explanation: {row.explanation}",
                 ]
             )
         )
@@ -133,7 +118,7 @@ Requirements:
 
 async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Persist claim verifier table in hunts.result as a JSON string.
+    Persist claim verifier rows in hunts.result as JSON.
 
     Args:
         hunt_id: Target hunt id.
@@ -142,16 +127,20 @@ async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, An
     Returns:
         Dict with save metadata.
     """
-    serialized_result = json.dumps(table, ensure_ascii=False)
-    title, summary = await _generate_hunt_metadata(table)
-    trust_score = _compute_trust_score(table)
+    rows = _extract_rows(table)
+    if not rows:
+        raise ValueError("Result rows are missing or invalid")
+
+    title, summary = await _generate_hunt_metadata(rows)
+    trust_score = _compute_trust_score(rows)
+    row_dicts = [row.model_dump() for row in rows]
     session = db.SessionLocal()
 
     try:
         updated_hunt = db.update_hunt_result(
             session=session,
             hunt_id=hunt_id,
-            result=serialized_result,
+            result=row_dicts,
             title=title,
             summary=summary,
             trust_score=trust_score,
@@ -162,7 +151,7 @@ async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, An
         logger.info(f"Saved result table to DB for hunt_id: {hunt_id}")
         return {
             "hunt_id": hunt_id,
-            "result": serialized_result,
+            "result": row_dicts,
             "title": updated_hunt.title,
             "summary": updated_hunt.summary,
             "trust_score": updated_hunt.trust_score,

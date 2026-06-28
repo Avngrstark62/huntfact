@@ -40,6 +40,11 @@ class RabbitMQSettings(SectionSettings):
     url: str = "amqp://guest:guest@localhost:5672/"
     task_queue_name: str = "task_queue"
     workflow_queue_name: str = "workflow_queue"
+    dead_letter_exchange_name: str = "huntfact.dead_letter"
+    task_dead_letter_queue_name: str = "task_queue.dead_letter"
+    workflow_dead_letter_queue_name: str = "workflow_queue.dead_letter"
+    task_dead_letter_routing_key: str = "task.dead_letter"
+    workflow_dead_letter_routing_key: str = "workflow.dead_letter"
     max_priority: int = 20
     prefetch_count: int = 1
 
@@ -89,6 +94,36 @@ class FirecrawlSettings(SectionSettings):
     api_key: str = ""
 
 
+class WorkflowAdmissionSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="WORKFLOW_ADMISSION_",
+    )
+    retry_count: int = 3
+    retry_base_delay_ms: int = 300
+
+
+class WorkflowCleanupSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="WORKFLOW_CLEANUP_",
+    )
+    processing_stale_minutes: int = 5
+    queued_stale_minutes: int = 30
+    interval_seconds: int = 30
+
+
+class SecuritySettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="SECURITY_",
+    )
+    allowed_cdn_host_suffixes: list[str] = ["fbcdn.net", "cdninstagram.com"]
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
@@ -107,5 +142,8 @@ class Settings(BaseSettings):
     chromadb: ChromaDBSettings = Field(default_factory=ChromaDBSettings)
     firebase: FirebaseSettings = Field(default_factory=FirebaseSettings)
     firecrawl: FirecrawlSettings = Field(default_factory=FirecrawlSettings)
+    workflow_admission: WorkflowAdmissionSettings = Field(default_factory=WorkflowAdmissionSettings)
+    workflow_cleanup: WorkflowCleanupSettings = Field(default_factory=WorkflowCleanupSettings)
+    security: SecuritySettings = Field(default_factory=SecuritySettings)
 
 settings = Settings()
