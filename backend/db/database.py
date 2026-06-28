@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from config import settings
-from typing import Generator
+from typing import Any, Generator
 
 Base = declarative_base()
 DEFAULT_USER_HUNTS_LIMIT = 30
@@ -288,7 +288,7 @@ class Database:
         self,
         session: Session,
         hunt_id: int,
-        result: str,
+        result: Any,
         title: str,
         summary: str,
         trust_score: int,

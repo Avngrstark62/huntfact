@@ -4,17 +4,17 @@ Focus: validating outputs from LLMs/services before they are consumed, persisted
 
 ## Release Blockers
 
-1. **[OPEN] Core result payload is stored as opaque string, not validated structured JSON** (`backend/services/save_result_to_db/save_result_to_db.py`, `backend/db/models/hunt.py`, `backend/schemas.py`)  
+1. **[FIXED] Core result payload is stored as opaque string, not validated structured JSON** (`backend/services/save_result_to_db/save_result_to_db.py`, `backend/db/models/hunt.py`, `backend/schemas.py`)  
    The fact-check table is serialized and persisted as string without schema enforcement at persistence/read boundaries.
 
-2. **[OPEN] No strict schema validation for worker step outputs before orchestration use** (`backend/worker.py`, `backend/orchestrator.py`)  
-   Step responses are mostly checked with `result.get("error")`, then downstream fields are consumed via `.get(...)` without full contract validation.
+2. **[FIXED] No strict schema validation for worker step outputs before orchestration use** (`backend/worker.py`, `backend/orchestrator.py`, `backend/rmq/schemas.py`, `backend/rmq/publisher.py`)  
+   Worker success payloads and orchestrator-consumed RPC outputs are now validated against step-specific schemas and typed RPC envelopes before downstream use.
 
-3. **[OPEN] No enforced output schema at API boundary for error paths** (`backend/router.py`)  
-   Endpoints declare typed `response_model`, but many failures return ad-hoc `JSONResponse` structures, creating inconsistent output contracts for clients.
+3. **[FIXED] No enforced output schema at API boundary for error paths** (`backend/router.py`, `backend/app.py`, `backend/schemas.py`)  
+   Router now raises typed HTTP exceptions and global FastAPI exception handlers normalize error payloads into a consistent `ErrorResponse` shape.
 
-4. **[NEW] Orchestrator accepts loosely shaped "success" step payloads without strict result contract checks** (`backend/orchestrator.py`)  
-   `_run_rpc_step` treats `"status": "success"` as sufficient and defaults missing `result` to `{}`, which can silently mask malformed intermediate outputs before downstream use.
+4. **[FIXED] Orchestrator accepts loosely shaped "success" step payloads without strict result contract checks** (`backend/orchestrator.py`, `backend/rmq/schemas.py`, `backend/rmq/publisher.py`)  
+   `_run_rpc_step` now enforces typed RPC envelope parsing, step-match validation, and step-specific `result` schema checks before returning success payloads.
 
 ## High Severity
 

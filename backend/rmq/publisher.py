@@ -6,7 +6,12 @@ import aio_pika
 
 from rmq.connection import rabbitmq
 from config import settings
-from rmq.schemas import TaskMessage, WorkflowMessage
+from rmq.schemas import (
+    TaskMessage,
+    TaskRpcResponse,
+    WorkflowMessage,
+    parse_task_rpc_response,
+)
 from logging_config import get_logger
 
 logger = get_logger("rmq.publisher")
@@ -51,11 +56,11 @@ async def publish_task(task: TaskMessage):
         await channel.close()
 
 
-async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -> dict:
+async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -> TaskRpcResponse:
     """
     Publish a task and await the worker reply via RabbitMQ direct reply-to (RPC-style).
 
-    Returns the decoded JSON body from the worker response.
+    Returns the validated RPC response envelope from the worker response.
     Raises asyncio.TimeoutError if timeout is set and no reply arrives in time.
     """
     loop = asyncio.get_running_loop()
@@ -67,8 +72,9 @@ async def publish_task_rpc(task: TaskMessage, *, timeout: float | None = None) -
             if str(message.correlation_id or "") != correlation_id:
                 return
             body = json.loads(message.body.decode())
+            parsed_response = parse_task_rpc_response(body)
             if not future.done():
-                future.set_result(body)
+                future.set_result(parsed_response)
         except Exception as e:
             if not future.done():
                 future.set_exception(e)

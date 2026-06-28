@@ -1,9 +1,14 @@
-from fastapi import APIRouter, status, Depends
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from logging_config import get_logger
-from schemas import StartHuntRequest, StartHuntResponse, HealthResponse, HuntResponse
+from schemas import (
+    ErrorResponse,
+    HealthResponse,
+    HuntResponse,
+    StartHuntRequest,
+    StartHuntResponse,
+)
 from config import settings
 from db.database import db
 from services.notification_sender.notify_publish import publish_notify_best_effort
@@ -15,9 +20,21 @@ from auth.supabase_auth import AuthenticatedUser, get_authenticated_user
 logger = get_logger("router")
 router = APIRouter()
 HUNT_STATUS_COMPLETED = "completed"
+COMMON_ERROR_RESPONSES = {
+    422: {"model": ErrorResponse},
+    500: {"model": ErrorResponse},
+}
 
 
-@router.get("/health", response_model=HealthResponse, tags=["health"])
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["health"],
+    responses={
+        **COMMON_ERROR_RESPONSES,
+        503: {"model": ErrorResponse},
+    },
+)
 def get_health() -> HealthResponse:
     """
     Health check endpoint.
@@ -25,12 +42,9 @@ def get_health() -> HealthResponse:
     Returns the current server health status and database connectivity.
     """
     if not is_system_healthy():
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "status": "unhealthy",
-                "message": "Database or RabbitMQ connection failed"
-            }
+            detail="Database or RabbitMQ connection failed",
         )
     
     return HealthResponse(
@@ -39,7 +53,16 @@ def get_health() -> HealthResponse:
     )
 
 
-@router.post("/start-hunt", response_model=StartHuntResponse, tags=["hunts"])
+@router.post(
+    "/start-hunt",
+    response_model=StartHuntResponse,
+    tags=["hunts"],
+    responses={
+        **COMMON_ERROR_RESPONSES,
+        429: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
 async def start_hunt(
     request: StartHuntRequest,
     session: Session = Depends(db.get_db),
@@ -62,9 +85,9 @@ async def start_hunt(
             request.cdn_link,
         )
 
-        hunt_limit_response = enforce_user_hunt_limit(session, authenticated_user.sub)
-        if hunt_limit_response is not None:
-            return hunt_limit_response
+        hunt_limit_error = enforce_user_hunt_limit(session, authenticated_user.sub)
+        if hunt_limit_error is not None:
+            raise hunt_limit_error
 
         video_link = str(request.video_link)
         try:
@@ -118,15 +141,26 @@ async def start_hunt(
             hunt_id=existing_hunt.id,
         )
              
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error in start_hunt: {str(e)}", exc_info=settings.app.debug)
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": "Internal Server Error"}
+            detail="Internal Server Error",
         )
 
 
-@router.get("/hunts/{hunt_id}", response_model=HuntResponse, tags=["hunts"])
+@router.get(
+    "/hunts/{hunt_id}",
+    response_model=HuntResponse,
+    tags=["hunts"],
+    responses={
+        **COMMON_ERROR_RESPONSES,
+        404: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
 async def get_hunt(
     hunt_id: int,
     session: Session = Depends(db.get_db),
@@ -140,9 +174,9 @@ async def get_hunt(
         logger.info("Fetching hunt for user_id=%s hunt_id=%s", authenticated_user.sub, hunt_id)
         hunt = db.get_hunt_for_user(session, hunt_id, authenticated_user.sub)
         if hunt is None:
-            return JSONResponse(
+            raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                content={"detail": f"Hunt not found for hunt_id={hunt_id}"},
+                detail=f"Hunt not found for hunt_id={hunt_id}",
             )
 
         return HuntResponse(
@@ -162,15 +196,25 @@ async def get_hunt(
             updated_at=hunt.updated_at,
             completed_at=hunt.completed_at,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error in get_hunt: {str(e)}", exc_info=settings.app.debug)
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": "Internal Server Error"},
+            detail="Internal Server Error",
         )
 
 
-@router.get("/hunts", response_model=list[HuntResponse], tags=["hunts"])
+@router.get(
+    "/hunts",
+    response_model=list[HuntResponse],
+    tags=["hunts"],
+    responses={
+        **COMMON_ERROR_RESPONSES,
+        503: {"model": ErrorResponse},
+    },
+)
 async def get_user_hunts(
     session: Session = Depends(db.get_db),
     _: None = Depends(check_health_dependency),
@@ -202,9 +246,11 @@ async def get_user_hunts(
                 completed_at=hunt.completed_at,
             ))
         return responses
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Unexpected error in get_user_hunts: {str(e)}", exc_info=settings.app.debug)
-        return JSONResponse(
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"detail": "Internal Server Error"},
+            detail="Internal Server Error",
         )

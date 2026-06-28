@@ -7,7 +7,13 @@ from logging_config import get_logger, setup_logging
 
 from rmq.connection import rabbitmq
 from rmq.consumer import start_workflow_consumer
-from rmq.schemas import WorkflowMessage, TaskMessage
+from rmq.schemas import (
+    TaskMessage,
+    TaskRpcErrorResponse,
+    TaskRpcSuccessResponse,
+    WorkflowMessage,
+    validate_task_step_result,
+)
 from rmq.publisher import publish_task_rpc
 from services.workflow_admission.workflow_admission import clear_workflow_admission
 from rmq.constants import (
@@ -40,9 +46,18 @@ async def _run_rpc_step(step: str, priority: int, payload: dict) -> tuple[dict |
     except Exception as e:
         return None, f"{step} RPC failed: {str(e)}"
 
-    if response.get("status") != "success":
-        return None, f"{step} failed: {response}"
-    return response.get("result") or {}, None
+    if isinstance(response, TaskRpcErrorResponse):
+        return None, f"{step} failed: {response.error}"
+    if not isinstance(response, TaskRpcSuccessResponse):
+        return None, f"{step} failed: invalid RPC response type"
+    if response.step != step:
+        return None, f"{step} failed: RPC response step mismatch ({response.step})"
+
+    try:
+        validated_result = validate_task_step_result(step, response.result)
+    except Exception as e:
+        return None, f"{step} failed: invalid RPC result schema ({str(e)})"
+    return validated_result, None
 
 
 def _mark_hunt_failed(hunt_id: int | None, step: str, error: Exception) -> None:
@@ -159,7 +174,8 @@ def _build_no_verdict_table_for_cluster(cluster: list, explanation: str) -> dict
         rows.append(
             {
                 "claim": value,
-                "verdict": "no verdict",
+                "verdict": "unverified",
+                "confidence": 50,
                 "sources": [],
                 "explanation": explanation,
             }

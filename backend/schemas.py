@@ -4,11 +4,17 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from config import settings
+from result_schema import FactCheckRow
 
 
 class HealthResponse(BaseModel):
     status: str = Field(..., description="Health status: healthy or unhealthy")
     message: str = Field(..., description="Health status message")
+
+
+class ErrorResponse(BaseModel):
+    detail: str = Field(..., description="Error description for the client")
+    code: str | None = Field(None, description="Optional application error code")
 
 
 class StartHuntRequest(BaseModel):
@@ -56,7 +62,10 @@ class HuntResponse(BaseModel):
     id: int = Field(..., description="Hunt id")
     video_link: str = Field(..., description="Video link for this hunt")
     status: str = Field(..., description="Current hunt status")
-    result: str | None = Field(None, description="Fact-check result JSON string")
+    result: list[FactCheckRow] | None = Field(
+        None,
+        description="Fact-check result rows",
+    )
     title: str | None = Field(None, description="Short title for the hunt summary")
     summary: str | None = Field(None, description="One-paragraph summary for the hunt")
     trust_score: int | None = Field(None, description="Overall trust score from 0 to 100")

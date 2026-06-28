@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 import aio_pika
 
 from logging_config import setup_logging, get_logger
@@ -19,8 +21,42 @@ class App:
             title=settings.app.name,
             debug=settings.app.debug,
         )
+        self._register_exception_handlers()
         self._register_startup_shutdown()
         self._register_routes()
+
+    def _register_exception_handlers(self):
+        @self.app.exception_handler(RequestValidationError)
+        async def validation_exception_handler(request: Request, exc: RequestValidationError):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "detail": "Request validation failed",
+                    "code": "VALIDATION_ERROR",
+                },
+            )
+
+        @self.app.exception_handler(HTTPException)
+        async def http_exception_handler(request: Request, exc: HTTPException):
+            detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "detail": detail,
+                    "code": "HTTP_ERROR",
+                },
+            )
+
+        @self.app.exception_handler(Exception)
+        async def unhandled_exception_handler(request: Request, exc: Exception):
+            logger.error("Unhandled exception: %s", str(exc), exc_info=True)
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "detail": "Internal Server Error",
+                    "code": "INTERNAL_ERROR",
+                },
+            )
 
     def _register_startup_shutdown(self):
         @self.app.on_event("startup")
