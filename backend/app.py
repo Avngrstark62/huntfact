@@ -22,6 +22,7 @@ import db.models as db_models  # noqa: F401
 from rmq.connection import rabbitmq
 from firebase_config import initialize_firebase
 from chroma_client import chroma_client
+from services.rate_limit import enforce_global_ip_rate_limit
 
 setup_logging()
 logger = get_logger("app")
@@ -61,6 +62,7 @@ class App:
             )
 
             try:
+                await enforce_global_ip_rate_limit(request)
                 response = await call_next(request)
                 duration_ms = int((time.perf_counter() - started_at) * 1000)
                 response.headers["X-Request-ID"] = request_id
@@ -78,6 +80,24 @@ class App:
                     duration_ms=duration_ms,
                 )
                 return response
+            except HTTPException as exc:
+                duration_ms = int((time.perf_counter() - started_at) * 1000)
+                log_event(
+                    logger,
+                    level=logging.WARNING,
+                    event="http.request.failed",
+                    status="failed",
+                    message="HTTP request rejected",
+                    component="api",
+                    request_id=request_id,
+                    method=request.method,
+                    path=request.url.path,
+                    status_code=exc.status_code,
+                    duration_ms=duration_ms,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc.detail),
+                )
+                raise
             except Exception as exc:
                 duration_ms = int((time.perf_counter() - started_at) * 1000)
                 log_event(

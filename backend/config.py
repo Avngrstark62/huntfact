@@ -137,6 +137,27 @@ class LoggingSettings(SectionSettings):
     log_dir: str = "logs"
 
 
+class RateLimitSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="RATE_LIMIT_",
+    )
+    global_ip_limit: int = 240
+    global_ip_window_seconds: int = 60
+    health_ip_limit: int = 30
+    health_ip_window_seconds: int = 60
+    start_hunt_user_limit: int = 6
+    start_hunt_user_window_seconds: int = 60
+    start_hunt_duplicate_cooldown_seconds: int = 1
+    hunt_read_user_limit: int = 120
+    hunt_read_user_window_seconds: int = 60
+    hunt_list_user_limit: int = 60
+    hunt_list_user_window_seconds: int = 60
+    store_cleanup_interval_seconds: int = 60
+    store_max_keys: int = 20000
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
@@ -159,5 +180,6 @@ class Settings(BaseSettings):
     workflow_cleanup: WorkflowCleanupSettings = Field(default_factory=WorkflowCleanupSettings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
 
 settings = Settings()

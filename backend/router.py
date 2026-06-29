@@ -16,6 +16,13 @@ from db.database import db
 from services.notification_sender.notify_publish import publish_notify_best_effort
 from services.workflow_admission.workflow_admission import admit_and_publish_workflow
 from services.hunt_limits.hunt_limits import enforce_user_hunt_limit
+from services.rate_limit import (
+    enforce_health_ip_rate_limit,
+    enforce_hunt_list_user_rate_limit,
+    enforce_hunt_read_user_rate_limit,
+    enforce_start_hunt_duplicate_rate_limit,
+    enforce_start_hunt_user_rate_limit,
+)
 from health import is_system_healthy, check_health_dependency
 from auth.supabase_auth import AuthenticatedUser, get_authenticated_user
 
@@ -34,10 +41,13 @@ COMMON_ERROR_RESPONSES = {
     tags=["health"],
     responses={
         **COMMON_ERROR_RESPONSES,
+        429: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
     },
 )
-def get_health() -> HealthResponse:
+async def get_health(
+    _: None = Depends(enforce_health_ip_rate_limit),
+) -> HealthResponse:
     """
     Health check endpoint.
     
@@ -70,6 +80,7 @@ async def start_hunt(
     http_request: Request,
     session: Session = Depends(db.get_db),
     _: None = Depends(check_health_dependency),
+    __: None = Depends(enforce_start_hunt_user_rate_limit),
     authenticated_user: AuthenticatedUser = Depends(get_authenticated_user),
 ) -> StartHuntResponse:
     """
@@ -83,6 +94,11 @@ async def start_hunt(
     try:
         request_id = getattr(http_request.state, "request_id", None)
         user_id_hash = hash_user_id(authenticated_user.sub)
+        enforce_start_hunt_duplicate_rate_limit(
+            request=http_request,
+            user_id=authenticated_user.sub,
+            video_link=str(request.video_link),
+        )
         log_event(
             logger,
             level=logging.INFO,
@@ -214,6 +230,7 @@ async def start_hunt(
     tags=["hunts"],
     responses={
         **COMMON_ERROR_RESPONSES,
+        429: {"model": ErrorResponse},
         404: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
     },
@@ -223,6 +240,7 @@ async def get_hunt(
     http_request: Request,
     session: Session = Depends(db.get_db),
     _: None = Depends(check_health_dependency),
+    __: None = Depends(enforce_hunt_read_user_rate_limit),
     authenticated_user: AuthenticatedUser = Depends(get_authenticated_user),
 ) -> HuntResponse:
     """
@@ -292,6 +310,7 @@ async def get_hunt(
     tags=["hunts"],
     responses={
         **COMMON_ERROR_RESPONSES,
+        429: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
     },
 )
@@ -299,6 +318,7 @@ async def get_user_hunts(
     http_request: Request,
     session: Session = Depends(db.get_db),
     _: None = Depends(check_health_dependency),
+    __: None = Depends(enforce_hunt_list_user_rate_limit),
     authenticated_user: AuthenticatedUser = Depends(get_authenticated_user),
 ) -> list[HuntResponse]:
     """
