@@ -10,11 +10,11 @@ Focus: ability to detect, debug, and resolve production issues quickly.
 2. **[OPEN] No distributed tracing or request/workflow span instrumentation** (backend-wide)  
    Workflow crosses API, RMQ, orchestrator, worker, and many external services without trace context propagation; root-cause analysis across components is very hard.
 
-3. **[OPEN] No end-to-end correlation key consistently logged across all steps** (`backend/router.py`, `backend/orchestrator.py`, `backend/worker.py`, `backend/services/*`)  
-   `job_id`/`workflow_id`/`hunt_id` are partially logged but not uniformly included in every step log line.
+3. **[PARTIALLY FIXED] End-to-end correlation key is improved but not fully consistent across all steps** (`backend/router.py`, `backend/orchestrator.py`, `backend/worker.py`, `backend/services/*`)  
+   `request_id`/`workflow_id`/`hunt_id`/`task_id` are now propagated in many active paths, but not uniformly present in all lower-level provider/service logs.
 
-4. **[NEW] RMQ correlation identifiers are not propagated into downstream processing logs** (`backend/rmq/consumer.py`, `backend/worker.py`, `backend/orchestrator.py`)  
-   Queue metadata includes message/correlation identifiers, but they are not consistently carried into worker/orchestrator/service logs for cross-component incident stitching.
+4. **[PARTIALLY FIXED] RMQ correlation identifiers are propagated in queue/worker paths but not end-to-end downstream** (`backend/rmq/consumer.py`, `backend/worker.py`, `backend/orchestrator.py`)  
+   Queue metadata and RPC correlation IDs are now logged in consumer/worker/publisher paths, but these identifiers are not consistently carried into all downstream service logs.
 
 ## High Severity
 
@@ -24,14 +24,14 @@ Focus: ability to detect, debug, and resolve production issues quickly.
 6. **[OPEN] Critical failure telemetry is inconsistent by module** (services/handlers-wide)  
    Some paths log rich context, while others log generic messages or swallow errors (e.g., scrape failures), creating blind spots.
 
-7. **[OPEN] No structured log schema (event name + fields)** (`backend/logging_config.py`, backend-wide usage)  
-   Free-form string logs dominate; lack of structured fields makes querying, dashboards, and alerting fragile.
+7. **[FIXED] Structured log schema is now in place for active backend paths** (`backend/logging_config.py`, backend-wide usage)  
+   `log_event(...)` plus `JsonFormatter` now emit structured fields (`event`, `status`, `component`, `service`, contextual identifiers), which materially improves queryability and machine parsing.
 
 8. **[OPEN] No severity discipline for operationally important events** (backend-wide)  
    Some significant degradation states are logged at `info`/`warning` without clear error classification.
 
-9. **[OPEN] Sensitive/high-volume payload logging pollutes signal** (`backend/orchestrator.py`, some service logs)  
-   Large objects (translation/claims/result fragments) are logged, increasing noise and making real incident patterns harder to detect.
+9. **[PARTIALLY FIXED] High-volume payload logging is reduced but not comprehensively governed** (`backend/orchestrator.py`, some service logs)  
+   Many paths now log compact summaries (`result_summary`) instead of raw payloads, but there is still no strict backend-wide policy preventing noisy/sensitive payload logging in all modules.
 
 ## Important Gaps
 
@@ -50,5 +50,13 @@ Focus: ability to detect, debug, and resolve production issues quickly.
 14. **[OPEN] No alerting hooks visible from code path** (backend-wide)  
    Failures are logged but not wired to an alerting channel/event sink, so critical outages may rely on manual log inspection.
 
-15. **[NEW] Validation error observability is reduced to generic message at API boundary** (`backend/app.py`)  
+15. **[OPEN] Validation error observability is reduced to generic message at API boundary** (`backend/app.py`)  
    Global request-validation handler returns a normalized error shape but drops field-level validation context from operator-facing telemetry unless separately captured.
+
+## New Issues
+
+16. **[NEW] Notification-step failure lacks explicit error telemetry in orchestrator completion path** (`backend/orchestrator.py`)  
+   `NOTIFY` exceptions are caught and converted into `notify_status="failed"` without logging `error_type`/`error_message`, making push-delivery incidents hard to debug.
+
+17. **[NEW] JSON file logging setup can fail process startup when log path is not writable** (`backend/logging_config.py`)  
+   File-handler initialization always creates a directory/file without guarded fallback; permission/path failures can break startup before application logic runs.
