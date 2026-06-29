@@ -2,12 +2,20 @@ package com.abhijeet.huntfact.hunts
 
 import com.abhijeet.huntfact.network.HuntDto
 
+data class HuntClaimRow(
+    val claim: String,
+    val verdict: String,
+    val confidence: Int,
+    val sources: List<String>,
+    val explanation: String,
+)
+
 data class HuntItem(
     val id: Int,
     val videoLink: String,
     val title: String?,
     val status: String,
-    val result: String?,
+    val result: List<HuntClaimRow>?,
     val thumbnailUrl: String?,
     val caption: String?,
     val creatorHandle: String?,
@@ -26,7 +34,15 @@ fun HuntDto.toHuntItem(): HuntItem {
         videoLink = video_link,
         title = title,
         status = status,
-        result = result,
+        result = result?.map { row ->
+            HuntClaimRow(
+                claim = row.claim,
+                verdict = row.verdict,
+                confidence = row.confidence.coerceIn(0, 100),
+                sources = row.sources,
+                explanation = row.explanation,
+            )
+        },
         thumbnailUrl = thumbnail_url,
         caption = caption,
         creatorHandle = creator_handle,

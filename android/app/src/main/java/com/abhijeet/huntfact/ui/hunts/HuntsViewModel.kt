@@ -14,12 +14,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
+import java.io.IOException
+import java.net.UnknownHostException
 
 data class HuntsUiState(
     val hunts: List<HuntItem> = emptyList(),
     val isAuthenticated: Boolean = false,
     val isRefreshing: Boolean = false,
     val message: String? = null,
+    val newHuntsAvailable: Boolean = false,
+    val scrollToTopSignal: Int = 0,
 )
 
 class HuntsViewModel(
@@ -69,24 +74,29 @@ class HuntsViewModel(
             return
         }
         viewModelScope.launch {
+            val previousTopHuntId = _uiState.value.hunts.firstOrNull()?.id
             if (!silent) {
                 _uiState.update { it.copy(isRefreshing = true, message = null) }
             }
             runCatching { repository.syncHunts() }
                 .onSuccess { hunts ->
+                    val latestTopHuntId = hunts.firstOrNull()?.id
+                    val hasNewTopHunt = latestTopHuntId != null && latestTopHuntId != previousTopHuntId
                     _uiState.update {
                         it.copy(
                             hunts = hunts,
                             isRefreshing = false,
                             message = if (silent) it.message else null,
+                            newHuntsAvailable = if (silent) it.newHuntsAvailable || hasNewTopHunt else false,
+                            scrollToTopSignal = if (!silent && hasNewTopHunt) it.scrollToTopSignal + 1 else it.scrollToTopSignal,
                         )
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
                     _uiState.update {
                         it.copy(
                             isRefreshing = false,
-                            message = "Failed to refresh hunts. Please try again.",
+                            message = refreshErrorMessage(error),
                         )
                     }
                 }
@@ -119,6 +129,26 @@ class HuntsViewModel(
 
     fun clearMessage() {
         _uiState.update { it.copy(message = null) }
+    }
+
+    fun clearNewHuntsIndicator() {
+        _uiState.update { it.copy(newHuntsAvailable = false) }
+    }
+
+    private fun refreshErrorMessage(error: Throwable): String {
+        if (error is HttpException) {
+            return when (error.code()) {
+                401, 403 -> "Your session expired. Please sign in again."
+                429 -> "You are refreshing too quickly. Please wait and try again."
+                503 -> "Service is temporarily unavailable. Please try again shortly."
+                in 400..499 -> "Unable to load hunts right now. Please try again."
+                else -> "Server issue while loading hunts. Please try again later."
+            }
+        }
+        if (error is UnknownHostException || error is IOException) {
+            return "No internet connection. Please check your network and try again."
+        }
+        return "Failed to refresh hunts. Please try again."
     }
 
     companion object {

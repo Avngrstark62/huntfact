@@ -37,12 +37,12 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import com.abhijeet.huntfact.hunts.HuntClaimRow
 import com.abhijeet.huntfact.hunts.HuntRepository
 import com.abhijeet.huntfact.ui.components.EmptyStateView
 import com.abhijeet.huntfact.ui.components.SectionTitle
 import com.abhijeet.huntfact.ui.theme.AndroidTheme
 import com.abhijeet.huntfact.ui.theme.AppSpacing
-import com.google.gson.JsonParser
 import kotlinx.coroutines.launch
 
 class ResultActivity : ComponentActivity() {
@@ -95,21 +95,12 @@ class ResultActivity : ComponentActivity() {
     }
 }
 
-private data class ClaimRow(
-    val claim: String,
-    val verdict: String,
-    val confidencePercent: Int,
-    val sources: List<String>,
-    val explanation: String,
-)
-
 private val TrustSummaryCardHeight = 124.dp
-private const val DEFAULT_CLAIM_CONFIDENCE_PERCENT = 50
 
 @Composable
 private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
     val huntStatus = normalizeHuntStatus(hunt.status)
-    val allRows = remember(hunt.result) { parseRows(hunt.result) }
+    val allRows = remember(hunt.result) { hunt.result.orEmpty() }
     val claimCountLabel = "${allRows.size} claims"
     val claimStats = remember(allRows) { computeResultClaimStats(allRows) }
     val context = LocalContext.current
@@ -202,7 +193,7 @@ private fun ResultScreen(hunt: com.abhijeet.huntfact.hunts.HuntItem) {
                                         context = context,
                                         claimText = row.claim,
                                         verdict = row.verdict,
-                                        confidencePercent = row.confidencePercent,
+                                        confidencePercent = row.confidence,
                                         explanation = row.explanation,
                                         sources = row.sources,
                                         claimIndex = index + 1,
@@ -424,7 +415,7 @@ private data class ResultClaimStats(
     val totalClaims: Int,
 )
 
-private fun computeResultClaimStats(rows: List<ClaimRow>): ResultClaimStats {
+private fun computeResultClaimStats(rows: List<HuntClaimRow>): ResultClaimStats {
     var falseCount = 0
     var mostlyFalseCount = 0
     var unverifiedCount = 0
@@ -478,7 +469,7 @@ private fun trustScoreColor(score: Int): Color {
 
 @Composable
 private fun ClaimRowCard(
-    row: ClaimRow,
+    row: HuntClaimRow,
     onClick: () -> Unit,
 ) {
     val label = row.verdict.ifBlank { VERDICT_UNVERIFIED }
@@ -516,7 +507,7 @@ private fun ClaimRowCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "$label . ${row.confidencePercent}% confidence",
+                    text = "$label . ${row.confidence}% confidence",
                     style = MaterialTheme.typography.bodyMedium,
                     color = accentColor,
                     maxLines = 1,
@@ -561,81 +552,6 @@ private fun EmptyResultScreen(title: String, subtitle: String) {
             EmptyStateView(title = title, subtitle = subtitle)
         }
     }
-}
-
-private fun parseRows(raw: String?): List<ClaimRow> {
-    if (raw.isNullOrBlank()) {
-        return emptyList()
-    }
-
-    return runCatching {
-        val root = JsonParser.parseString(raw)
-        val rowsElement = when {
-            root.isJsonObject && root.asJsonObject.has("rows") -> root.asJsonObject.get("rows")
-            root.isJsonArray -> root
-            else -> null
-        } ?: return@runCatching emptyList()
-
-        if (!rowsElement.isJsonArray) {
-            return@runCatching emptyList()
-        }
-
-        rowsElement.asJsonArray.mapNotNull { rowElement ->
-            if (!rowElement.isJsonObject) {
-                return@mapNotNull null
-            }
-            val obj = rowElement.asJsonObject
-            val claim = obj.get("claim").safeAsString()
-            if (claim.isBlank()) {
-                return@mapNotNull null
-            }
-            val verdict = obj.get("verdict").safeAsString().ifBlank { VERDICT_UNVERIFIED }
-            val confidencePercent = obj.get("confidence").safeAsIntOrNull()
-                ?: obj.get("confidence_percent").safeAsIntOrNull()
-                ?: DEFAULT_CLAIM_CONFIDENCE_PERCENT
-            val explanation = obj.get("explanation").safeAsString()
-            val sources = obj.get("sources")
-                ?.takeIf { it.isJsonArray }
-                ?.asJsonArray
-                ?.mapNotNull { sourceElement ->
-                    runCatching { sourceElement.asString.trim() }.getOrNull()?.takeIf { it.isNotBlank() }
-                }
-                .orEmpty()
-            ClaimRow(
-                claim = claim,
-                verdict = verdict,
-                confidencePercent = confidencePercent.coerceIn(0, 100),
-                sources = sources,
-                explanation = explanation.ifBlank { "No explanation provided." },
-            )
-        }
-    }.getOrElse {
-        listOf(
-            ClaimRow(
-                claim = "Result",
-                verdict = VERDICT_UNVERIFIED,
-                confidencePercent = DEFAULT_CLAIM_CONFIDENCE_PERCENT,
-                sources = emptyList(),
-                explanation = raw.trim(),
-            )
-        )
-    }
-}
-
-private fun com.google.gson.JsonElement?.safeAsString(): String {
-    return runCatching { this?.asString?.trim().orEmpty() }.getOrDefault("")
-}
-
-private fun com.google.gson.JsonElement?.safeAsIntOrNull(): Int? {
-    return runCatching {
-        when {
-            this == null -> null
-            this.isJsonNull -> null
-            this.isJsonPrimitive && this.asJsonPrimitive.isNumber -> this.asInt
-            this.isJsonPrimitive && this.asJsonPrimitive.isString -> this.asString.trim().toInt()
-            else -> null
-        }
-    }.getOrNull()
 }
 
 private enum class HuntStatus {

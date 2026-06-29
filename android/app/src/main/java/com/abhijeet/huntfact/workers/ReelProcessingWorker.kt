@@ -16,13 +16,16 @@ import com.abhijeet.huntfact.ResultActivity
 import com.abhijeet.huntfact.extraction.ReelExtractor
 import com.abhijeet.huntfact.hunts.HuntItem
 import com.abhijeet.huntfact.hunts.HuntRepository
+import com.abhijeet.huntfact.hunts.toHuntItem
 import com.abhijeet.huntfact.network.RetrofitClient
 import com.abhijeet.huntfact.network.StartHuntRequest
 import com.abhijeet.huntfact.utils.AuthSessionManager
 import com.abhijeet.huntfact.utils.DebugLogger
+import com.abhijeet.huntfact.utils.FcmTokenManager
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
 import retrofit2.HttpException
+import java.io.IOException
 import java.net.InetAddress
 import java.net.UnknownHostException
 
@@ -37,7 +40,10 @@ class ReelProcessingWorker(
             
             if (reelUrl.isNullOrEmpty()) {
                 DebugLogger.e(TAG, "❌ Invalid reel URL provided")
-                showErrorNotification()
+                showFailureNotification(
+                    title = "Unsupported link",
+                    message = "Please share a public Instagram reel link.",
+                )
                 return Result.failure()
             }
 
@@ -60,7 +66,10 @@ class ReelProcessingWorker(
                     return Result.failure()
                 }
                 DebugLogger.e(TAG, "❌ Failed to extract CDN URL from shared URL")
-                showErrorNotification()
+                showFailureNotification(
+                    title = "Reel not accessible",
+                    message = "We couldn't access this reel. Check that it is public and still available.",
+                )
                 return Result.failure()
             }
 
@@ -78,14 +87,35 @@ class ReelProcessingWorker(
 
             // Get FCM token
             DebugLogger.d(TAG, "🔐 Fetching FCM token...")
-            val fcmToken = try {
+            val freshFcmToken = try {
                 FirebaseMessaging.getInstance().token.await()
             } catch (e: Exception) {
-                DebugLogger.e(TAG, "❌ Failed to get FCM token: ${e.message}")
-                showErrorNotification()
-                return Result.failure()
+                DebugLogger.e(TAG, "⚠️ Failed to get fresh FCM token: ${e.message}")
+                null
             }
-            DebugLogger.d(TAG, "✅ FCM token obtained: ${fcmToken.take(20)}...")
+            if (!freshFcmToken.isNullOrBlank()) {
+                FcmTokenManager.saveToken(applicationContext, freshFcmToken)
+            }
+            val savedFcmToken = FcmTokenManager.getSavedToken(applicationContext)
+            val effectiveFcmToken = when {
+                !freshFcmToken.isNullOrBlank() -> freshFcmToken
+                !savedFcmToken.isNullOrBlank() -> {
+                    DebugLogger.d(TAG, "ℹ️ Using cached FCM token fallback")
+                    savedFcmToken
+                }
+                else -> {
+                    DebugLogger.e(
+                        TAG,
+                        "⚠️ No FCM token available; continuing hunt creation without push notification token",
+                    )
+                    ""
+                }
+            }
+            if (effectiveFcmToken.isBlank()) {
+                DebugLogger.d(TAG, "ℹ️ Push notification may not be delivered for this hunt")
+            } else {
+                DebugLogger.d(TAG, "✅ FCM token ready: ${effectiveFcmToken.take(20)}...")
+            }
 
             // Call backend API
             DebugLogger.d(TAG, "📤 Sending reel to HuntFact backend...")
@@ -94,7 +124,7 @@ class ReelProcessingWorker(
             val request = StartHuntRequest(
                 video_link = cleanedReelUrl,
                 cdn_link = cdnUrl,
-                fcm_token = fcmToken,
+                fcm_token = effectiveFcmToken,
                 thumbnail_url = cleanedReelUrl,
                 caption = cleanedReelUrl,
                 creator_handle = "unknown_creator",
@@ -104,35 +134,48 @@ class ReelProcessingWorker(
             return try {
                 val response = apiService.startHunt(request)
                 if (response.success) {
-                    val huntItem = HuntItem(
-                        id = response.hunt_id,
-                        videoLink = cleanedReelUrl,
-                        title = response.title,
-                        status = response.status,
-                        result = response.result,
-                        thumbnailUrl = cleanedReelUrl,
-                        caption = cleanedReelUrl,
-                        creatorHandle = "unknown_creator",
-                        platform = "instagram",
-                        errorMessage = null,
-                        createdAt = null,
-                        updatedAt = null,
-                        completedAt = null,
-                        trustScore = response.trust_score?.coerceIn(0, 100),
-                        summary = response.summary,
-                    )
-                    HuntRepository(applicationContext).upsertLocal(huntItem)
+                    val huntRepository = HuntRepository(applicationContext)
+                    val huntItem = runCatching {
+                        apiService.getHunt(response.hunt_id).toHuntItem()
+                    }.getOrElse {
+                        // start-hunt only guarantees hunt_id/message/success; use safe local fallback.
+                        HuntItem(
+                            id = response.hunt_id,
+                            videoLink = cleanedReelUrl,
+                            title = null,
+                            status = "processing",
+                            result = null,
+                            thumbnailUrl = cleanedReelUrl,
+                            caption = cleanedReelUrl,
+                            creatorHandle = "unknown_creator",
+                            platform = "instagram",
+                            errorMessage = null,
+                            createdAt = null,
+                            updatedAt = null,
+                            completedAt = null,
+                            trustScore = null,
+                            summary = null,
+                        )
+                    }
+                    huntRepository.upsertLocal(huntItem)
                     DebugLogger.d(TAG, "✅ Successfully sent to HuntFact backend!")
                     DebugLogger.d(TAG, "📨 Response: ${response.message}")
                     showSuccessNotification(
-                        title = "Claim check started",
-                        message = "We received your reel and started fact-checking.",
+                        title = if (effectiveFcmToken.isBlank()) "Processing started" else "Claim check started",
+                        message = if (effectiveFcmToken.isBlank()) {
+                            "Fact-check started. Notifications may be delayed; check History for updates."
+                        } else {
+                            "We received your reel and started fact-checking."
+                        },
                         huntId = response.hunt_id,
                     )
                     Result.success()
                 } else {
                     DebugLogger.e(TAG, "❌ Backend API returned error: ${response.message}")
-                    showErrorNotification()
+                    showFailureNotification(
+                        title = "Unable to start fact-check",
+                        message = "We couldn't start processing this reel right now. Please try again shortly.",
+                    )
                     Result.failure()
                 }
             } catch (e: Exception) {
@@ -142,12 +185,12 @@ class ReelProcessingWorker(
                     return Result.failure()
                 }
                 DebugLogger.e(TAG, "❌ API request failed: ${e.message}", e)
-                showErrorNotification()
+                showBackendAwareFailureNotification(e)
                 Result.failure()
             }
         } catch (e: Exception) {
             DebugLogger.e(TAG, "❌ Unexpected error in worker: ${e.message}", e)
-            showErrorNotification()
+            showBackendAwareFailureNotification(e)
             Result.failure()
         }
     }
@@ -201,6 +244,13 @@ class ReelProcessingWorker(
     }
 
     private fun showErrorNotification() {
+        showFailureNotification(
+            title = "Error processing reel",
+            message = "Something went wrong while processing your reel. Please try again.",
+        )
+    }
+
+    private fun showFailureNotification(title: String, message: String) {
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "reel_error_channel"
 
@@ -215,13 +265,64 @@ class ReelProcessingWorker(
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("Error Processing Reel")
-            .setContentText("An error occurred while processing your reel. Please try again.")
+            .setContentTitle(title)
+            .setContentText(message)
             .setAutoCancel(true)
             .build()
 
         notificationManager.notify(ERROR_NOTIFICATION_ID, notification)
-        DebugLogger.e(TAG, "📲 Error notification shown: Generic error message")
+        DebugLogger.e(TAG, "📲 Error notification shown: $title - $message")
+    }
+
+    private fun showBackendAwareFailureNotification(error: Exception) {
+        if (error is HttpException) {
+            when (error.code()) {
+                401, 403 -> {
+                    showSignInRequiredNotification()
+                    return
+                }
+                429 -> {
+                    showFailureNotification(
+                        title = "Too many requests",
+                        message = "Please wait a minute and try sharing the reel again.",
+                    )
+                    return
+                }
+                503 -> {
+                    showFailureNotification(
+                        title = "Service temporarily unavailable",
+                        message = "Our servers are busy right now. Please try again shortly.",
+                    )
+                    return
+                }
+            }
+
+            if (error.code() in 400..499) {
+                showFailureNotification(
+                    title = "Unable to process this reel",
+                    message = "Please share a public Instagram reel link and try again.",
+                )
+                return
+            }
+
+            if (error.code() >= 500) {
+                showFailureNotification(
+                    title = "Server issue",
+                    message = "HuntFact is having trouble right now. Please try again later.",
+                )
+                return
+            }
+        }
+
+        if (error is UnknownHostException || error is IOException) {
+            showFailureNotification(
+                title = "Network issue",
+                message = "Please check your internet connection and try again.",
+            )
+            return
+        }
+
+        showErrorNotification()
     }
 
     private fun showNetworkIssueNotification(isRetrying: Boolean) {

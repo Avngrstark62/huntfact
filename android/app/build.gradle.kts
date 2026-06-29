@@ -19,7 +19,7 @@ android {
         ?: System.getenv("SUPABASE_ANON_KEY")
         ?: ""
     val backendBaseUrl = (project.findProperty("BACKEND_BASE_URL") as String?)
-        ?: "https://api.huntfact.com/"
+        ?: "https://c2b0-14-139-38-106.ngrok-free.app/"
 
     defaultConfig {
         applicationId = "com.abhijeet.huntfact"
@@ -77,6 +77,9 @@ dependencies {
     
     // AppCompat
     implementation("androidx.appcompat:appcompat:1.6.1")
+
+    // Encrypted local storage for sensitive app data
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     
     // Retrofit for networking
     implementation("com.squareup.retrofit2:retrofit:2.9.0")

@@ -20,18 +20,13 @@ data class StartHuntResponse(
     val success: Boolean,
     val message: String? = null,
     val hunt_id: Int,
-    val status: String,
-    val result: String? = null,
-    val title: String? = null,
-    val summary: String? = null,
-    val trust_score: Int? = null,
 )
 
 data class HuntDto(
     val id: Int,
     val video_link: String,
     val status: String,
-    val result: String? = null,
+    val result: List<FactCheckRowDto>? = null,
     val title: String? = null,
     val summary: String? = null,
     val trust_score: Int? = null,
@@ -43,6 +38,14 @@ data class HuntDto(
     @SerializedName("created_at") val createdAt: String? = null,
     @SerializedName("updated_at") val updatedAt: String? = null,
     @SerializedName("completed_at") val completedAt: String? = null,
+)
+
+data class FactCheckRowDto(
+    val claim: String,
+    val verdict: String,
+    val confidence: Int,
+    val sources: List<String> = emptyList(),
+    val explanation: String,
 )
 
 interface ApiService {

@@ -1,6 +1,3 @@
 <resources>
     <string name="app_name">Huntfact</string>
-    <string name="export_debug_logs">Export Debug Logs</string>
-    <string name="debug_logs_not_found">No debug logs available yet.</string>
-    <string name="debug_logs_share_error">Unable to export debug logs.</string>
 </resources>

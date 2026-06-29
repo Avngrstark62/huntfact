@@ -11,14 +11,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,32 +28,30 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.tween
 import com.abhijeet.huntfact.ui.components.HeroHeaderCard
+import com.abhijeet.huntfact.hunts.HuntClaimRow
 import com.abhijeet.huntfact.hunts.HuntItem
 import com.abhijeet.huntfact.ui.components.EmptyStateView
 import com.abhijeet.huntfact.ui.components.InfoCard
 import com.abhijeet.huntfact.ui.components.SectionTitle
 import com.abhijeet.huntfact.ui.components.StatusChip
-import com.google.gson.JsonParser
-import coil.compose.AsyncImage
 import com.abhijeet.huntfact.ui.theme.AppSpacing
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun HuntsScreen(
@@ -62,7 +59,8 @@ fun HuntsScreen(
     onRefresh: () -> Unit,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
-    onExportDebugLogs: () -> Unit = {},
+    notificationPermissionHint: String? = null,
+    onViewNewHunts: () -> Unit = {},
     onOpenHunt: (HuntItem) -> Unit,
     showSectionTitle: Boolean = true,
     showSummary: Boolean = true,
@@ -71,6 +69,14 @@ fun HuntsScreen(
     modifier: Modifier = Modifier,
 ) {
     val isHistoryMode = !showSectionTitle && !showSummary && !showActionButtons
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(uiState.scrollToTopSignal) {
+        if (uiState.scrollToTopSignal > 0) {
+            listState.animateScrollToItem(0)
+        }
+    }
 
     Column(
         modifier = modifier
@@ -118,6 +124,22 @@ fun HuntsScreen(
             return
         }
 
+        if (!notificationPermissionHint.isNullOrBlank()) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = notificationPermissionHint,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(AppSpacing.md),
+                )
+            }
+            Spacer(modifier = Modifier.height(AppSpacing.sm))
+        }
+
         if (showSummary && isHistoryMode) {
             HuntsSummaryRow(
                 hunts = uiState.hunts,
@@ -161,14 +183,6 @@ fun HuntsScreen(
                             Text("Sign out")
                         }
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                    ) {
-                        TextButton(onClick = onExportDebugLogs) {
-                            Text("Export Debug Logs")
-                        }
-                    }
                 }
             }
             Spacer(modifier = Modifier.height(AppSpacing.sm))
@@ -181,6 +195,40 @@ fun HuntsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        if (uiState.newHuntsAvailable) {
+            Spacer(modifier = Modifier.height(AppSpacing.xs))
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.padding(AppSpacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+                ) {
+                    Text(
+                        text = "New hunt available",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(0)
+                            }
+                            onViewNewHunts()
+                        },
+                        shape = RoundedCornerShape(999.dp),
+                    ) {
+                        Text("View")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(AppSpacing.xs))
         }
 
         if (!isHistoryMode) {
@@ -196,7 +244,10 @@ fun HuntsScreen(
             return
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(AppSpacing.sm)) {
+        LazyColumn(
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.sm),
+        ) {
             itemsIndexed(uiState.hunts, key = { _, hunt -> hunt.id }) { index, hunt ->
                 var visible by remember(hunt.id) { mutableStateOf(false) }
                 LaunchedEffect(hunt.id) {
@@ -257,8 +308,7 @@ private fun HuntCard(
 ) {
     val claimStats = remember(hunt.result) { calculateClaimStats(hunt.result) }
     val normalizedStatus = normalizeHuntStatus(hunt.status)
-    val cardHeight = 104.dp
-    val thumbnailSize = 72.dp
+    val cardHeight = 88.dp
 
     Card(
         modifier = Modifier
@@ -272,17 +322,10 @@ private fun HuntCard(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = AppSpacing.md, vertical = AppSpacing.sm),
+                .padding(horizontal = AppSpacing.md, vertical = AppSpacing.xs),
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HuntThumbnail(
-                url = hunt.thumbnailUrl,
-                modifier = Modifier
-                    .size(thumbnailSize)
-                    .clip(RoundedCornerShape(12.dp)),
-            )
-
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -306,47 +349,6 @@ private fun HuntCard(
                 TrustScoreBadge(score = score)
             } ?: StatusChip(status = hunt.status)
         }
-    }
-}
-
-@Composable
-private fun HuntThumbnail(
-    url: String?,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(12.dp)
-    val placeholderPainter = painterResource(id = android.R.drawable.ic_media_play)
-    if (url.isNullOrBlank()) {
-        ThumbnailPlaceholder(
-            modifier = modifier
-                .clip(shape)
-        )
-        return
-    }
-
-    AsyncImage(
-        model = url,
-        contentDescription = "Hunt thumbnail",
-        modifier = modifier
-            .clip(shape),
-        placeholder = placeholderPainter,
-        error = placeholderPainter,
-        contentScale = ContentScale.Crop,
-    )
-}
-
-@Composable
-private fun ThumbnailPlaceholder(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painter = painterResource(id = android.R.drawable.ic_media_play),
-            contentDescription = "Video thumbnail placeholder",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(28.dp),
-        )
     }
 }
 
@@ -392,8 +394,8 @@ private fun HuntClaimStats.summaryLabel(): String {
     }
 }
 
-private fun calculateClaimStats(rawResult: String?): HuntClaimStats {
-    if (rawResult.isNullOrBlank()) {
+private fun calculateClaimStats(rows: List<HuntClaimRow>?): HuntClaimStats {
+    if (rows.isNullOrEmpty()) {
         return HuntClaimStats(
             totalClaims = 0,
             falseClaims = 0,
@@ -404,69 +406,29 @@ private fun calculateClaimStats(rawResult: String?): HuntClaimStats {
         )
     }
 
-    return runCatching {
-        val root = JsonParser.parseString(rawResult)
-        val rowsElement = when {
-            root.isJsonObject && root.asJsonObject.has("rows") -> root.asJsonObject.get("rows")
-            root.isJsonArray -> root
-            else -> null
-        } ?: return@runCatching HuntClaimStats(
-            totalClaims = 0,
-            falseClaims = 0,
-            mostlyFalseClaims = 0,
-            unverifiedClaims = 0,
-            mostlyTrueClaims = 0,
-            trueClaims = 0,
-        )
+    var falseCount = 0
+    var mostlyFalseCount = 0
+    var unverifiedCount = 0
+    var mostlyTrueCount = 0
+    var trueCount = 0
 
-        if (!rowsElement.isJsonArray) {
-            return@runCatching HuntClaimStats(
-                totalClaims = 0,
-                falseClaims = 0,
-                mostlyFalseClaims = 0,
-                unverifiedClaims = 0,
-                mostlyTrueClaims = 0,
-                trueClaims = 0,
-            )
+    rows.forEach { row ->
+        when (row.verdict.ifBlank { VERDICT_UNVERIFIED }) {
+            VERDICT_FALSE -> falseCount += 1
+            VERDICT_MOSTLY_FALSE -> mostlyFalseCount += 1
+            VERDICT_UNVERIFIED -> unverifiedCount += 1
+            VERDICT_MOSTLY_TRUE -> mostlyTrueCount += 1
+            VERDICT_TRUE -> trueCount += 1
         }
+    }
 
-        var total = 0
-        var falseCount = 0
-        var mostlyFalseCount = 0
-        var unverifiedCount = 0
-        var mostlyTrueCount = 0
-        var trueCount = 0
-
-        rowsElement.asJsonArray.forEach { rowElement ->
-            if (!rowElement.isJsonObject) return@forEach
-            total += 1
-            val verdict = rowElement.asJsonObject.get("verdict")?.safeAsString().orEmpty()
-            when (verdict.ifBlank { VERDICT_UNVERIFIED }) {
-                VERDICT_FALSE -> falseCount += 1
-                VERDICT_MOSTLY_FALSE -> mostlyFalseCount += 1
-                VERDICT_UNVERIFIED -> unverifiedCount += 1
-                VERDICT_MOSTLY_TRUE -> mostlyTrueCount += 1
-                VERDICT_TRUE -> trueCount += 1
-            }
-        }
-
-        HuntClaimStats(
-            totalClaims = total,
-            falseClaims = falseCount,
-            mostlyFalseClaims = mostlyFalseCount,
-            unverifiedClaims = unverifiedCount,
-            mostlyTrueClaims = mostlyTrueCount,
-            trueClaims = trueCount,
-        )
-    }.getOrDefault(
-        HuntClaimStats(
-            totalClaims = 0,
-            falseClaims = 0,
-            mostlyFalseClaims = 0,
-            unverifiedClaims = 0,
-            mostlyTrueClaims = 0,
-            trueClaims = 0,
-        )
+    return HuntClaimStats(
+        totalClaims = rows.size,
+        falseClaims = falseCount,
+        mostlyFalseClaims = mostlyFalseCount,
+        unverifiedClaims = unverifiedCount,
+        mostlyTrueClaims = mostlyTrueCount,
+        trueClaims = trueCount,
     )
 }
 
@@ -476,10 +438,6 @@ private fun trustScoreColor(score: Int): Color {
         in 41..69 -> Color(0xFFFFB300)
         else -> Color(0xFF2E7D32)
     }
-}
-
-private fun com.google.gson.JsonElement?.safeAsString(): String {
-    return runCatching { this?.asString?.trim().orEmpty() }.getOrDefault("")
 }
 
 private enum class HuntStatus {
