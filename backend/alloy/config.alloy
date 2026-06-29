@@ -1,0 +1,19 @@
+local.file_match "huntfact_logs" {
+  path_targets = [
+    {
+      __path__ = "/var/log/huntfact/*.jsonl",
+      job = "huntfact",
+    },
+  ]
+}
+
+loki.source.file "huntfact_logs" {
+  targets    = local.file_match.huntfact_logs.targets
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

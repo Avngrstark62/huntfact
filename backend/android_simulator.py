@@ -4,8 +4,8 @@ import asyncio
 
 async def main():
     # url = "https://www.instagram.com/reel/DWBrc8Ij6si" # asharam
-    # url = "https://www.instagram.com/reel/DYXCY4nMcnq" # qutub minar
-    url = "https://www.instagram.com/reels/DYErla1ALXs" # ghariyal
+    url = "https://www.instagram.com/reel/DYXCY4nMcnq" # qutub minar
+    # url = "https://www.instagram.com/reels/DYErla1ALXs" # ghariyal
     # url = "https://www.instagram.com/reel/DIHT_LcvHzI"
     # url = "https://www.instagram.com/reel/DSpm9JAj5Ip" # babar gay
     cdn_link = ""

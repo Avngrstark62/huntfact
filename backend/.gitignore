@@ -219,3 +219,5 @@ transcriptions/*
 product.md
 ngrok.md
 ui.md
+
+logs/*

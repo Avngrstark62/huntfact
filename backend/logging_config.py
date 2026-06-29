@@ -1,9 +1,13 @@
 import json
 import logging
+import os
+import re
+import sys
 import traceback
 from contextvars import ContextVar
 from datetime import datetime, UTC
 from hashlib import sha256
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -144,6 +148,25 @@ def _normalize_event(event: str) -> str:
     return "log.message"
 
 
+def _sanitize_filename_component(value: str | None, fallback: str = "service") -> str:
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip().lower())
+    sanitized = sanitized.strip("._-")
+    return sanitized or fallback
+
+
+def _resolve_process_label() -> str:
+    script_name = Path(sys.argv[0] or "").stem
+    if script_name and script_name.lower() not in {"python", "python3"}:
+        return _sanitize_filename_component(script_name)
+    return _sanitize_filename_component(settings.logging.service_name)
+
+
+def _build_json_log_path() -> Path:
+    log_dir = Path(settings.logging.log_dir or "logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / f"{_resolve_process_label()}-{os.getpid()}.jsonl"
+
+
 class JsonFormatter(logging.Formatter):
     def __init__(self, include_source: bool = False) -> None:
         super().__init__()
@@ -201,6 +224,9 @@ def setup_logging() -> logging.Logger:
     handler.setFormatter(formatter)
 
     logger.addHandler(handler)
+    file_handler = logging.FileHandler(_build_json_log_path(), encoding="utf-8")
+    file_handler.setFormatter(JsonFormatter(include_source=settings.logging.include_source))
+    logger.addHandler(file_handler)
     logger.setLevel(getattr(logging, (settings.logging.level or "INFO").upper(), logging.INFO))
     logger.propagate = False
     return logger

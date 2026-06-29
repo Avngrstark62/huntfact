@@ -131,9 +131,10 @@ class LoggingSettings(SectionSettings):
         env_prefix="LOG_",
     )
     level: str = "INFO"
-    format: str = "json"
+    format: str = "text"
     include_source: bool = False
     service_name: str = "huntfact-backend"
+    log_dir: str = "logs"
 
 
 class Settings(BaseSettings):
