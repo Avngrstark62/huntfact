@@ -51,6 +51,16 @@ async def handle_url_fetcher(payload: dict | None = None) -> Optional[dict]:
 
     try:
         results = await fetch_urls_for_claims(claims)
+        total_url_count = sum(
+            len(item.get("urls", []))
+            for item in results
+            if isinstance(item, dict) and isinstance(item.get("urls", []), list)
+        )
+        non_empty_query_count = sum(
+            1
+            for item in results
+            if isinstance(item, dict) and isinstance(item.get("urls", []), list) and len(item.get("urls", [])) > 0
+        )
         log_event(
             logger,
             level=logging.INFO,
@@ -62,7 +72,11 @@ async def handle_url_fetcher(payload: dict | None = None) -> Optional[dict]:
             hunt_id=context.get("hunt_id"),
             request_id=context.get("request_id"),
             task_id=context.get("task_id"),
-            result_summary={"query_result_count": len(results)},
+            result_summary={
+                "query_result_count": len(results),
+                "non_empty_query_count": non_empty_query_count,
+                "total_url_count": total_url_count,
+            },
         )
         return {"results": results, "error": None}
     except Exception as e:

@@ -12,10 +12,45 @@ from logging_config import get_logger, log_event
 
 logger = get_logger("services.url_fetcher.url_fetcher")
 INTER_QUERY_DELAY_SECONDS = 2
+QUERY_PREVIEW_MAX_CHARS = 160
+URL_PREVIEW_MAX_CHARS = 220
+RESULTS_PREVIEW_QUERY_LIMIT = 3
+RESULTS_PREVIEW_URLS_PER_QUERY = 3
 
 
 def _query_fingerprint(query: str) -> str:
     return hashlib.sha256(query.encode("utf-8")).hexdigest()[:12]
+
+
+def _truncate(value: str, max_chars: int) -> str:
+    cleaned = (value or "").strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 3] + "..."
+
+
+def _build_results_preview(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    preview: List[Dict[str, Any]] = []
+    for result in results[:RESULTS_PREVIEW_QUERY_LIMIT]:
+        query = str(result.get("query", ""))
+        urls = result.get("urls")
+        if not isinstance(urls, list):
+            urls = []
+        preview.append(
+            {
+                "query": _truncate(query, QUERY_PREVIEW_MAX_CHARS),
+                "url_count": len(urls),
+                "urls_preview": [
+                    {
+                        "title": _truncate(str(url.get("title", "")), QUERY_PREVIEW_MAX_CHARS),
+                        "url": _truncate(str(url.get("url", "")), URL_PREVIEW_MAX_CHARS),
+                    }
+                    for url in urls[:RESULTS_PREVIEW_URLS_PER_QUERY]
+                    if isinstance(url, dict)
+                ],
+            }
+        )
+    return preview
 
 
 class QueryListResponse(BaseModel):
@@ -148,6 +183,7 @@ def _extract_search_results(search_results: List[Dict[str, Any]]) -> List[Dict[s
 
 def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
     query_fp = _query_fingerprint(query)
+    query_preview = _truncate(query, QUERY_PREVIEW_MAX_CHARS)
     log_event(
         logger,
         level=logging.INFO,
@@ -158,6 +194,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
         provider="searxng",
         operation="search",
         query_fingerprint=query_fp,
+        query=query_preview,
     )
     try:
         response = requests.get(
@@ -176,6 +213,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             provider="searxng",
             operation="search",
             query_fingerprint=query_fp,
+            query=query_preview,
             error_type=type(e).__name__,
             error_message=str(e),
             exc_info=True,
@@ -193,6 +231,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             provider="searxng",
             operation="search",
             query_fingerprint=query_fp,
+            query=query_preview,
             http_status=response.status_code,
         )
         raise RuntimeError(
@@ -212,6 +251,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             provider="searxng",
             operation="search",
             query_fingerprint=query_fp,
+            query=query_preview,
             error_type=type(e).__name__,
             error_message=str(e),
         )
@@ -229,6 +269,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             provider="searxng",
             operation="search",
             query_fingerprint=query_fp,
+            query=query_preview,
         )
         raise RuntimeError(f"SearxNG response missing 'results' list for query fingerprint '{query_fp}'")
 
@@ -252,6 +293,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
         provider="searxng",
         operation="search",
         query_fingerprint=query_fp,
+        query=query_preview,
         result_summary={"url_count": len(normalized_results)},
     )
     return normalized_results
@@ -313,7 +355,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
         status="succeeded",
         message="Generated web queries",
         component="services.url_fetcher",
-        result_summary={"query_count": len(queries)},
+        result_summary={"query_count": len(queries), "queries": [_truncate(q, QUERY_PREVIEW_MAX_CHARS) for q in queries]},
     )
 
     results: List[Dict[str, Any]] = []
@@ -361,7 +403,18 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
             provider="searxng",
             operation="search",
             query_fingerprint=query_fp,
-            result_summary={"url_count": len(urls)},
+            result_summary={
+                "query": _truncate(query, QUERY_PREVIEW_MAX_CHARS),
+                "url_count": len(urls),
+                "urls_preview": [
+                    {
+                        "title": _truncate(str(url.get("title", "")), QUERY_PREVIEW_MAX_CHARS),
+                        "url": _truncate(str(url.get("url", "")), URL_PREVIEW_MAX_CHARS),
+                    }
+                    for url in urls[:RESULTS_PREVIEW_URLS_PER_QUERY]
+                    if isinstance(url, dict)
+                ],
+            },
         )
         results.append({"query": query, "urls": urls})
 
@@ -376,5 +429,34 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
                 delay_seconds=INTER_QUERY_DELAY_SECONDS,
             )
             await asyncio.sleep(INTER_QUERY_DELAY_SECONDS)
+
+    total_urls = sum(
+        len(result.get("urls", []))
+        for result in results
+        if isinstance(result, dict) and isinstance(result.get("urls", []), list)
+    )
+    unique_urls = len(
+        {
+            str(url.get("url", "")).strip()
+            for result in results
+            if isinstance(result, dict) and isinstance(result.get("urls", []), list)
+            for url in result.get("urls", [])
+            if isinstance(url, dict) and str(url.get("url", "")).strip()
+        }
+    )
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="task.succeeded",
+        status="succeeded",
+        message="URL fetcher completed all query searches",
+        component="services.url_fetcher",
+        result_summary={
+            "query_count": len(results),
+            "total_url_count": total_urls,
+            "unique_url_count": unique_urls,
+            "results_preview": _build_results_preview(results),
+        },
+    )
 
     return results
