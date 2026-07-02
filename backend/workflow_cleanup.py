@@ -73,6 +73,15 @@ async def main() -> None:
                     stale_queued_hunts=stale_queued_hunt_ids,
                     admissions_deleted=deleted_admissions,
                 )
+            else:
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="app.lifecycle.succeeded",
+                    status="skipped",
+                    message="Workflow cleanup cycle completed with no changes",
+                    component="workflow_cleanup",
+                )
         except Exception as e:
             log_event(
                 logger,

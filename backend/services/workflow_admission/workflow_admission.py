@@ -40,6 +40,17 @@ async def _admit_and_publish_workflow_once(
     context: dict | None = None,
 ) -> tuple[bool, str]:
     workflow_id = generate_workflow_id(video_link)
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="workflow.admission.started",
+        status="started",
+        message="Starting single workflow admission attempt",
+        workflow_id=workflow_id,
+        hunt_id=hunt_id,
+        video_link=sanitize_url(video_link),
+        request_id=(context or {}).get("request_id") if isinstance(context, dict) else None,
+    )
     workflow_message = WorkflowMessage(
         workflow_id=workflow_id,
         payload={
@@ -82,6 +93,18 @@ async def _admit_and_publish_workflow_once(
     try:
         await publish_workflow(workflow_message)
     except Exception as publish_error:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="workflow.admission.failed",
+            status="failed",
+            message="Workflow publish failed during admission attempt",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            error_type=type(publish_error).__name__,
+            error_message=str(publish_error),
+            exc_info=True,
+        )
         raise _WorkflowAdmissionAttemptError(
             workflow_id=workflow_id,
             admission_created_by_this_call=True,
@@ -112,10 +135,33 @@ async def admit_and_publish_workflow(
     workflow_id = generate_workflow_id(video_link)
     last_error: Exception | None = None
     admission_created_by_this_call = False
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="workflow.admission.started",
+        status="started",
+        message="Starting workflow admission with retries",
+        workflow_id=workflow_id,
+        hunt_id=hunt_id,
+        max_attempts=retry_count,
+        video_link=sanitize_url(video_link),
+        request_id=(context or {}).get("request_id") if isinstance(context, dict) else None,
+    )
 
     for attempt in range(1, retry_count + 1):
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="workflow.admission.started",
+            status="started",
+            message="Workflow admission attempt started",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            attempt=attempt,
+            max_attempts=retry_count,
+        )
         try:
-            return await _admit_and_publish_workflow_once(
+            success, response_message = await _admit_and_publish_workflow_once(
                 session=session,
                 hunt_id=hunt_id,
                 video_link=video_link,
@@ -123,6 +169,19 @@ async def admit_and_publish_workflow(
                 fcm_token=fcm_token,
                 context=context,
             )
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="workflow.admission.succeeded",
+                status="succeeded" if success else "failed",
+                message="Workflow admission completed",
+                workflow_id=workflow_id,
+                hunt_id=hunt_id,
+                attempt=attempt,
+                max_attempts=retry_count,
+                result_summary={"response_message": response_message},
+            )
+            return success, response_message
         except _WorkflowAdmissionAttemptError as attempt_error:
             last_error = attempt_error.__cause__ or attempt_error
             admission_created_by_this_call = (
@@ -133,12 +192,53 @@ async def admit_and_publish_workflow(
             last_error = workflow_error
             try:
                 session.rollback()
-            except Exception:
-                pass
+            except Exception as rollback_error:
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="workflow.admission.failed",
+                    status="failed",
+                    message="Session rollback failed during workflow admission",
+                    workflow_id=workflow_id,
+                    hunt_id=hunt_id,
+                    attempt=attempt,
+                    max_attempts=retry_count,
+                    error_type=type(rollback_error).__name__,
+                    error_message=str(rollback_error),
+                    exc_info=True,
+                )
 
         if attempt >= retry_count:
             if admission_created_by_this_call:
-                db.delete_workflow_admission(session, workflow_id)
+                try:
+                    deleted = db.delete_workflow_admission(session, workflow_id)
+                    log_event(
+                        logger,
+                        level=logging.INFO,
+                        event="workflow.admission.succeeded",
+                        status="succeeded" if deleted else "skipped",
+                        message="Admission cleanup after retries",
+                        workflow_id=workflow_id,
+                        hunt_id=hunt_id,
+                        attempt=attempt,
+                        max_attempts=retry_count,
+                    )
+                except Exception as cleanup_error:
+                    log_event(
+                        logger,
+                        level=logging.ERROR,
+                        event="workflow.admission.failed",
+                        status="failed",
+                        message="Admission cleanup failed after retries",
+                        workflow_id=workflow_id,
+                        hunt_id=hunt_id,
+                        attempt=attempt,
+                        max_attempts=retry_count,
+                        error_type=type(cleanup_error).__name__,
+                        error_message=str(cleanup_error),
+                        exc_info=True,
+                    )
+                    raise
             log_event(
                 logger,
                 level=logging.ERROR,
@@ -178,11 +278,27 @@ async def admit_and_publish_workflow(
 
 def clear_workflow_admission(workflow_id: str | None) -> None:
     if not isinstance(workflow_id, str) or not workflow_id.strip():
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="workflow.admission.failed",
+            status="skipped",
+            message="Skipped clearing workflow admission due to invalid workflow_id",
+            workflow_id=workflow_id,
+        )
         return
 
     session = db.SessionLocal()
     try:
-        db.delete_workflow_admission(session, workflow_id.strip())
+        deleted = db.delete_workflow_admission(session, workflow_id.strip())
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="workflow.admission.succeeded",
+            status="succeeded" if deleted else "skipped",
+            message="Cleared workflow admission row",
+            workflow_id=workflow_id.strip(),
+        )
     except Exception as delete_error:
         log_event(
             logger,

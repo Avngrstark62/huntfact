@@ -34,7 +34,21 @@ class RabbitMQClient:
                 message="Connecting to RabbitMQ",
                 component="rmq.connection",
             )
-            self.connection = await aio_pika.connect_robust(settings.rabbitmq.url)
+            try:
+                self.connection = await aio_pika.connect_robust(settings.rabbitmq.url)
+            except Exception as e:
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="rmq.connection.failed",
+                    status="failed",
+                    message="Failed to connect to RabbitMQ",
+                    component="rmq.connection",
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
+                raise
             log_event(
                 logger,
                 level=logging.INFO,

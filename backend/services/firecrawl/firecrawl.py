@@ -68,6 +68,17 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
         markdown = response.get("markdown", "")
 
     if not isinstance(markdown, str) or not markdown.strip():
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Firecrawl scrape returned empty markdown",
+            component="services.firecrawl",
+            provider="firecrawl",
+            operation="scrape",
+            url=sanitize_url(cleaned_url),
+        )
         raise RuntimeError(f"Firecrawl response missing markdown for URL '{cleaned_url}'")
 
     return markdown

@@ -27,6 +27,17 @@ async def publish_notify_best_effort(
                 },
             )
         )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="task.publish.succeeded",
+            status="succeeded",
+            message="Best-effort notify published",
+            component="services.notification_sender.notify_publish",
+            hunt_id=hunt_id,
+            workflow_id=payload_context.get("workflow_id"),
+            request_id=payload_context.get("request_id"),
+        )
     except Exception as notify_error:
         log_event(
             logger,

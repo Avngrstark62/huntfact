@@ -95,8 +95,27 @@ class Database:
         """
         from db.models.hunt import Hunt
 
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.started",
+            status="started",
+            message="Creating or reusing hunt in transaction",
+            component="db",
+            video_link=sanitize_url(video_link),
+        )
         existing_hunt = self.get_hunt_by_video_link(session, video_link)
         if existing_hunt is not None:
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="db.write.succeeded",
+                status="skipped",
+                message="Reused existing hunt in transaction",
+                component="db",
+                hunt_id=existing_hunt.id,
+                video_link=sanitize_url(video_link),
+            )
             return existing_hunt
 
         try:
@@ -112,12 +131,32 @@ class Database:
                 session.add(hunt)
                 session.flush()
                 session.refresh(hunt)
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="db.write.succeeded",
+                    status="succeeded",
+                    message="Created new hunt in transaction",
+                    component="db",
+                    hunt_id=hunt.id,
+                    video_link=sanitize_url(video_link),
+                )
                 return hunt
         except IntegrityError:
             # Concurrent request may have created the same video_link.
             existing_hunt = self.get_hunt_by_video_link(session, video_link)
             if existing_hunt is None:
                 raise
+            log_event(
+                logger,
+                level=logging.WARNING,
+                event="db.write.failed",
+                status="skipped",
+                message="Reused hunt after integrity conflict in transaction",
+                component="db",
+                hunt_id=existing_hunt.id,
+                video_link=sanitize_url(video_link),
+            )
             return existing_hunt
 
     def get_hunt(self, session: Session, hunt_id: int):
@@ -129,12 +168,31 @@ class Database:
         from db.models.hunt import Hunt
         from db.models.hunt_user import HuntUser
 
-        return (
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.started",
+            status="started",
+            message="Querying hunt for user",
+            component="db",
+            hunt_id=hunt_id,
+        )
+        hunt = (
             session.query(Hunt)
             .join(HuntUser, Hunt.id == HuntUser.hunt_id)
             .filter(Hunt.id == hunt_id, HuntUser.user_id == user_id)
             .first()
         )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.succeeded",
+            status="succeeded" if hunt is not None else "skipped",
+            message="Queried hunt for user",
+            component="db",
+            hunt_id=hunt_id,
+        )
+        return hunt
 
     def get_hunt_by_video_link(self, session: Session, video_link: str):
         from db.models.hunt import Hunt
@@ -242,6 +300,16 @@ class Database:
 
         hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
         if hunt is None or hunt.status != "failed":
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="db.write.succeeded",
+                status="skipped",
+                message="Skipped clearing workflow admission because hunt is not failed",
+                component="db",
+                workflow_id=workflow_id,
+                hunt_id=hunt_id,
+            )
             return False
 
         deleted_rows = (
@@ -253,7 +321,28 @@ class Database:
             session.commit()
         except:
             session.rollback()
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="db.write.failed",
+                status="failed",
+                message="Clearing workflow admission for failed hunt failed",
+                component="db",
+                workflow_id=workflow_id,
+                hunt_id=hunt_id,
+                exc_info=True,
+            )
             raise
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded" if deleted_rows > 0 else "skipped",
+            message="Cleared workflow admission for failed hunt",
+            component="db",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+        )
         return deleted_rows > 0
 
     def mark_stale_processing_hunts_failed(
@@ -263,6 +352,15 @@ class Database:
     ) -> list[int]:
         from db.models.hunt import Hunt
 
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.started",
+            status="started",
+            message="Marking stale processing hunts as failed",
+            component="db",
+            stale_minutes=stale_minutes,
+        )
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
         stale_hunts = (
             session.query(Hunt)
@@ -281,7 +379,27 @@ class Database:
                 session.commit()
             except:
                 session.rollback()
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="db.write.failed",
+                    status="failed",
+                    message="Marking stale processing hunts failed commit failed",
+                    component="db",
+                    stale_minutes=stale_minutes,
+                    exc_info=True,
+                )
                 raise
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded" if stale_hunts else "skipped",
+            message="Marked stale processing hunts as failed",
+            component="db",
+            stale_minutes=stale_minutes,
+            result_summary={"hunt_count": len(stale_ids)},
+        )
         return stale_ids
 
     def mark_stale_queued_hunts_failed(
@@ -291,6 +409,15 @@ class Database:
     ) -> list[int]:
         from db.models.hunt import Hunt
 
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.started",
+            status="started",
+            message="Marking stale queued hunts as failed",
+            component="db",
+            stale_minutes=stale_minutes,
+        )
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
         stale_hunts = (
             session.query(Hunt)
@@ -309,13 +436,41 @@ class Database:
                 session.commit()
             except:
                 session.rollback()
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="db.write.failed",
+                    status="failed",
+                    message="Marking stale queued hunts failed commit failed",
+                    component="db",
+                    stale_minutes=stale_minutes,
+                    exc_info=True,
+                )
                 raise
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded" if stale_hunts else "skipped",
+            message="Marked stale queued hunts as failed",
+            component="db",
+            stale_minutes=stale_minutes,
+            result_summary={"hunt_count": len(stale_ids)},
+        )
         return stale_ids
 
     def delete_workflow_admissions_for_failed_hunts(self, session: Session) -> int:
         from db.models.hunt import Hunt
         from db.models.workflow_admission import WorkflowAdmission
 
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.started",
+            status="started",
+            message="Deleting workflow admissions for failed hunts",
+            component="db",
+        )
         failed_admissions = (
             session.query(WorkflowAdmission.workflow_id)
             .join(Hunt, WorkflowAdmission.hunt_id == Hunt.id)
@@ -324,6 +479,14 @@ class Database:
         )
         workflow_ids = [row[0] for row in failed_admissions]
         if not workflow_ids:
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="db.write.succeeded",
+                status="skipped",
+                message="No workflow admissions to delete for failed hunts",
+                component="db",
+            )
             return 0
 
         deleted_rows = (
@@ -335,7 +498,25 @@ class Database:
             session.commit()
         except:
             session.rollback()
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="db.write.failed",
+                status="failed",
+                message="Deleting workflow admissions for failed hunts failed",
+                component="db",
+                exc_info=True,
+            )
             raise
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded",
+            message="Deleted workflow admissions for failed hunts",
+            component="db",
+            result_summary={"deleted_count": int(deleted_rows or 0)},
+        )
         return int(deleted_rows or 0)
 
     def update_hunt_result(
@@ -406,7 +587,17 @@ class Database:
 
         hunt = session.query(Hunt).filter(Hunt.id == hunt_id).first()
         if hunt is None:
-            return None
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="db.write.failed",
+                status="failed",
+                message="Cannot update hunt status because hunt was not found",
+                component="db",
+                hunt_id=hunt_id,
+                status_value=status_value,
+            )
+            raise RuntimeError(f"Hunt not found for hunt_id={hunt_id}")
 
         hunt.status = status_value
         hunt.error_message = error_message
@@ -508,6 +699,15 @@ class Database:
             .first()
         )
         if existing:
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="db.write.succeeded",
+                status="skipped",
+                message="Hunt-user mapping already exists in transaction",
+                component="db",
+                hunt_id=hunt_id,
+            )
             return existing
 
         try:
@@ -516,6 +716,15 @@ class Database:
                 session.add(hunt_user)
                 session.flush()
                 session.refresh(hunt_user)
+                log_event(
+                    logger,
+                    level=logging.INFO,
+                    event="db.write.succeeded",
+                    status="succeeded",
+                    message="Created hunt-user mapping in transaction",
+                    component="db",
+                    hunt_id=hunt_id,
+                )
                 return hunt_user
         except IntegrityError:
             existing = (
@@ -525,6 +734,15 @@ class Database:
             )
             if existing is None:
                 raise
+            log_event(
+                logger,
+                level=logging.WARNING,
+                event="db.write.failed",
+                status="skipped",
+                message="Reused hunt-user mapping after integrity conflict in transaction",
+                component="db",
+                hunt_id=hunt_id,
+            )
             return existing
 
     def get_users_by_hunt_id(self, session: Session, hunt_id: int):
@@ -537,13 +755,31 @@ class Database:
         from db.models.hunt import Hunt
         from db.models.hunt_user import HuntUser
 
-        return (
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.started",
+            status="started",
+            message="Querying hunts by user id",
+            component="db",
+        )
+        hunts = (
             session.query(Hunt)
             .join(HuntUser, Hunt.id == HuntUser.hunt_id)
             .filter(HuntUser.user_id == user_id)
             .order_by(Hunt.updated_at.desc())
             .all()
         )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.succeeded",
+            status="succeeded",
+            message="Queried hunts by user id",
+            component="db",
+            result_summary={"hunt_count": len(hunts)},
+        )
+        return hunts
 
     def get_or_create_user_hunts_limit(
         self,
@@ -552,8 +788,25 @@ class Database:
     ) -> int:
         from db.models.user_hunt_limit import UserHuntLimit
 
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.started",
+            status="started",
+            message="Resolving user hunts limit",
+            component="db",
+        )
         row = session.query(UserHuntLimit).filter(UserHuntLimit.user_id == user_id).first()
         if row:
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="db.query.succeeded",
+                status="succeeded",
+                message="Resolved existing user hunts limit",
+                component="db",
+                result_summary={"hunts_limit": row.hunts_limit},
+            )
             return row.hunts_limit
 
         row = UserHuntLimit(
@@ -567,16 +820,51 @@ class Database:
             session.rollback()
             row = session.query(UserHuntLimit).filter(UserHuntLimit.user_id == user_id).first()
             if row is None:
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="db.write.failed",
+                    status="failed",
+                    message="Failed to create user hunts limit",
+                    component="db",
+                    exc_info=True,
+                )
                 raise
+            log_event(
+                logger,
+                level=logging.WARNING,
+                event="db.write.failed",
+                status="skipped",
+                message="Resolved existing user hunts limit after create conflict",
+                component="db",
+                result_summary={"hunts_limit": row.hunts_limit},
+            )
             return row.hunts_limit
         session.refresh(row)
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded",
+            message="Created default user hunts limit",
+            component="db",
+            result_summary={"hunts_limit": row.hunts_limit},
+        )
         return row.hunts_limit
 
     def get_active_hunts_count_by_user_id(self, session: Session, user_id: str) -> int:
         from db.models.hunt import Hunt
         from db.models.hunt_user import HuntUser
 
-        return (
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.started",
+            status="started",
+            message="Counting active hunts by user id",
+            component="db",
+        )
+        count = (
             session.query(Hunt.id)
             .join(HuntUser, Hunt.id == HuntUser.hunt_id)
             .filter(
@@ -585,6 +873,16 @@ class Database:
             )
             .count()
         )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.succeeded",
+            status="succeeded",
+            message="Counted active hunts by user id",
+            component="db",
+            result_summary={"active_hunts_count": count},
+        )
+        return count
 
 
 # ✅ singleton instance

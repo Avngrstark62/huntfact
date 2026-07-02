@@ -70,6 +70,17 @@ class LLM:
             )
             
             self._log_usage(model, response.usage)
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="succeeded",
+                message="LLM text call succeeded",
+                component="llm",
+                provider="openai",
+                operation="chat.completions",
+                model=model,
+            )
             
             return response.choices[0].message.content
         except Exception as e:
@@ -127,6 +138,17 @@ class LLM:
             )
             
             self._log_usage(model, response.usage)
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="succeeded",
+                message="LLM schema call succeeded",
+                component="llm",
+                provider="openai",
+                operation="chat.completions.parse",
+                model=model,
+            )
             
             return response.choices[0].message.parsed
         except Exception as e:

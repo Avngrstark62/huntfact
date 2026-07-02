@@ -202,10 +202,34 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
     try:
         payload = response.json()
     except ValueError as e:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="SearXNG returned invalid JSON",
+            component="services.url_fetcher",
+            provider="searxng",
+            operation="search",
+            query_fingerprint=query_fp,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         raise RuntimeError(f"SearxNG returned invalid JSON for query fingerprint '{query_fp}'") from e
 
     raw_results = payload.get("results")
     if not isinstance(raw_results, list):
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="SearXNG response missing results list",
+            component="services.url_fetcher",
+            provider="searxng",
+            operation="search",
+            query_fingerprint=query_fp,
+        )
         raise RuntimeError(f"SearxNG response missing 'results' list for query fingerprint '{query_fp}'")
 
     normalized_results: List[Dict[str, Any]] = []

@@ -54,11 +54,26 @@ async def get_health(
     Returns the current server health status and database connectivity.
     """
     if not is_system_healthy():
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="health.check.failed",
+            status="failed",
+            message="Health check failed",
+            component="api",
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database or RabbitMQ connection failed",
         )
-    
+    log_event(
+        logger,
+        level=logging.INFO,
+        event="health.check.succeeded",
+        status="succeeded",
+        message="Health check succeeded",
+        component="api",
+    )
     return HealthResponse(
         status="healthy",
         message="Server is running"
@@ -118,6 +133,16 @@ async def start_hunt(
 
         hunt_limit_error = enforce_user_hunt_limit(session, authenticated_user.sub)
         if hunt_limit_error is not None:
+            log_event(
+                logger,
+                level=logging.WARNING,
+                event="workflow.admission.failed",
+                status="failed",
+                message="User hunt limit reached",
+                component="api",
+                request_id=request_id,
+                user_id_hash=user_id_hash,
+            )
             raise hunt_limit_error
 
         video_link = str(request.video_link)
@@ -148,6 +173,17 @@ async def start_hunt(
             user_id_hash=user_id_hash,
         )
         if existing_hunt.status == HUNT_STATUS_COMPLETED:
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="workflow.admission.succeeded",
+                status="skipped",
+                message="Hunt already completed; sending best-effort notify",
+                component="api",
+                request_id=request_id,
+                hunt_id=existing_hunt.id,
+                user_id_hash=user_id_hash,
+            )
             await publish_notify_best_effort(
                 existing_hunt.id,
                 request.fcm_token,
@@ -156,6 +192,17 @@ async def start_hunt(
                     "user_id_hash": user_id_hash,
                     "hunt_id": existing_hunt.id,
                 },
+            )
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="workflow.admission.succeeded",
+                status="succeeded",
+                message="start_hunt completed via existing completed hunt path",
+                component="api",
+                request_id=request_id,
+                hunt_id=existing_hunt.id,
+                user_id_hash=user_id_hash,
             )
             return StartHuntResponse(
                 success=True,
@@ -196,13 +243,40 @@ async def start_hunt(
                 hunt_id=existing_hunt.id,
             )
 
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="workflow.admission.succeeded",
+            status="succeeded" if admission_success else "failed",
+            message="start_hunt completed",
+            component="api",
+            request_id=request_id,
+            hunt_id=existing_hunt.id,
+            user_id_hash=user_id_hash,
+            result_summary={
+                "admission_success": admission_success,
+                "admission_message": admission_message,
+            },
+        )
         return StartHuntResponse(
             success=admission_success,
             message=admission_message,
             hunt_id=existing_hunt.id,
         )
              
-    except HTTPException:
+    except HTTPException as http_exc:
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="workflow.admission.failed",
+            status="failed",
+            message="start_hunt rejected with HTTP exception",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            error_type=type(http_exc).__name__,
+            error_message=str(http_exc.detail),
+            status_code=http_exc.status_code,
+        )
         raise
     except Exception as e:
         request_id = getattr(http_request.state, "request_id", None)
@@ -260,11 +334,34 @@ async def get_hunt(
         )
         hunt = db.get_hunt_for_user(session, hunt_id, authenticated_user.sub)
         if hunt is None:
+            log_event(
+                logger,
+                level=logging.WARNING,
+                event="db.query.failed",
+                status="failed",
+                message="Hunt not found",
+                component="api",
+                request_id=getattr(http_request.state, "request_id", None),
+                hunt_id=hunt_id,
+                user_id_hash=hash_user_id(authenticated_user.sub),
+            )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Hunt not found for hunt_id={hunt_id}",
             )
 
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.succeeded",
+            status="succeeded",
+            message="Fetched hunt",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            hunt_id=hunt_id,
+            user_id_hash=hash_user_id(authenticated_user.sub),
+            result_summary={"hunt_status": hunt.status},
+        )
         return HuntResponse(
             id=hunt.id,
             video_link=hunt.video_link,
@@ -282,7 +379,20 @@ async def get_hunt(
             updated_at=hunt.updated_at,
             completed_at=hunt.completed_at,
         )
-    except HTTPException:
+    except HTTPException as http_exc:
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="db.query.failed",
+            status="failed",
+            message="get_hunt rejected with HTTP exception",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            hunt_id=hunt_id,
+            error_type=type(http_exc).__name__,
+            error_message=str(http_exc.detail),
+            status_code=http_exc.status_code,
+        )
         raise
     except Exception as e:
         log_event(
@@ -355,8 +465,32 @@ async def get_user_hunts(
                 updated_at=hunt.updated_at,
                 completed_at=hunt.completed_at,
             ))
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.query.succeeded",
+            status="succeeded",
+            message="Fetched hunts for user",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            user_id_hash=hash_user_id(authenticated_user.sub),
+            result_summary={"hunt_count": len(responses)},
+        )
         return responses
-    except HTTPException:
+    except HTTPException as http_exc:
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="db.query.failed",
+            status="failed",
+            message="get_user_hunts rejected with HTTP exception",
+            component="api",
+            request_id=getattr(http_request.state, "request_id", None),
+            user_id_hash=hash_user_id(authenticated_user.sub),
+            error_type=type(http_exc).__name__,
+            error_message=str(http_exc.detail),
+            status_code=http_exc.status_code,
+        )
         raise
     except Exception as e:
         log_event(

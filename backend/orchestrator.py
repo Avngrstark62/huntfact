@@ -107,13 +107,55 @@ async def _run_rpc_step(
         )
         return None, f"{step} failed: {response.error}"
     if not isinstance(response, TaskRpcSuccessResponse):
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="RPC task returned invalid response type",
+            component="orchestrator",
+            workflow_id=task_context.get("workflow_id"),
+            hunt_id=task_context.get("hunt_id"),
+            request_id=task_context.get("request_id"),
+            task_id=task_id,
+            step=step,
+        )
         return None, f"{step} failed: invalid RPC response type"
     if response.step != step:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="RPC response step mismatch",
+            component="orchestrator",
+            workflow_id=task_context.get("workflow_id"),
+            hunt_id=task_context.get("hunt_id"),
+            request_id=task_context.get("request_id"),
+            task_id=task_id,
+            step=step,
+            result_summary={"response_step": response.step},
+        )
         return None, f"{step} failed: RPC response step mismatch ({response.step})"
 
     try:
         validated_result = validate_task_step_result(step, response.result)
     except Exception as e:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="RPC response schema validation failed",
+            component="orchestrator",
+            workflow_id=task_context.get("workflow_id"),
+            hunt_id=task_context.get("hunt_id"),
+            request_id=task_context.get("request_id"),
+            task_id=task_id,
+            step=step,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
         return None, f"{step} failed: invalid RPC result schema ({str(e)})"
     log_event(
         logger,
@@ -161,9 +203,18 @@ def _mark_hunt_failed(hunt_id: int | None, step: str, error: Exception) -> None:
         session.close()
 
 
-def _mark_hunt_processing(hunt_id: int | None) -> None:
+def _mark_hunt_processing(hunt_id: int | None) -> bool:
     if not isinstance(hunt_id, int):
-        return
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="db.write.failed",
+            status="failed",
+            message="Invalid hunt_id when setting processing status",
+            component="orchestrator",
+            hunt_id=hunt_id,
+        )
+        return False
 
     session = db.SessionLocal()
     try:
@@ -173,6 +224,16 @@ def _mark_hunt_processing(hunt_id: int | None) -> None:
             "processing",
             None,
         )
+        log_event(
+            logger,
+            level=logging.INFO,
+            event="db.write.succeeded",
+            status="succeeded",
+            message="Hunt status set to processing",
+            component="orchestrator",
+            hunt_id=hunt_id,
+        )
+        return True
     except Exception as status_error:
         log_event(
             logger,
@@ -186,6 +247,7 @@ def _mark_hunt_processing(hunt_id: int | None) -> None:
             error_message=str(status_error),
             exc_info=True,
         )
+        return False
     finally:
         session.close()
 
@@ -324,11 +386,37 @@ async def _run_cluster_verification_loop(cluster: list, workflow_context: dict) 
         raise RuntimeError(rag_storage_error)
     rag_reference = rag_storage_result.get("rag_reference")
     if not isinstance(rag_reference, dict):
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="failed",
+            message="RAG storage returned invalid rag_reference; using fallback rows",
+            component="orchestrator",
+            workflow_id=workflow_context.get("workflow_id"),
+            hunt_id=workflow_context.get("hunt_id"),
+            result_summary={"claim_count": len(cluster)},
+        )
         return _build_no_verdict_table_for_cluster(
             cluster,
             "No sufficient web sources were found to verify this claim cluster.",
         )
     if int(rag_reference.get("source_count") or 0) <= 0 or int(rag_reference.get("chunk_count") or 0) <= 0:
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="failed",
+            message="RAG storage returned no usable sources/chunks; using fallback rows",
+            component="orchestrator",
+            workflow_id=workflow_context.get("workflow_id"),
+            hunt_id=workflow_context.get("hunt_id"),
+            result_summary={
+                "claim_count": len(cluster),
+                "source_count": int(rag_reference.get("source_count") or 0),
+                "chunk_count": int(rag_reference.get("chunk_count") or 0),
+            },
+        )
         return _build_no_verdict_table_for_cluster(
             cluster,
             "No sufficient web sources were found to verify this claim cluster.",
@@ -484,7 +572,21 @@ async def handle_workflow_message(msg: dict) -> None:
             )
             return
 
-        _mark_hunt_processing(hunt_id)
+        if not _mark_hunt_processing(hunt_id):
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="workflow.failed",
+                status="failed",
+                message="Workflow aborted because hunt could not be marked processing",
+                component="orchestrator",
+                workflow_id=workflow_id,
+                hunt_id=hunt_id,
+                request_id=workflow_context.get("request_id"),
+                step=current_step,
+            )
+            clear_workflow_admission(workflow_id)
+            return
 
         current_step = EXTRACT_AUDIO
         extract_result, extract_error = await _run_rpc_step(
@@ -641,6 +743,20 @@ async def handle_workflow_message(msg: dict) -> None:
             raise RuntimeError(notify_error)
     except Exception as e:
         notify_status = "failed"
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="task.failed",
+            status="failed",
+            message="Notify step failed",
+            component="orchestrator",
+            workflow_id=workflow_id,
+            hunt_id=hunt_id,
+            request_id=workflow_context.get("request_id"),
+            step=current_step,
+            error_type=type(e).__name__,
+            error_message=str(e),
+        )
     log_event(
         logger,
         level=logging.INFO,

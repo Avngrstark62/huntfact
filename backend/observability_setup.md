@@ -32,3 +32,8 @@ docker run -d \
   grafana/alloy:latest \
   run /etc/alloy/config.alloy
 ```
+
+# connect loki with grafana
+```
+URL: http://loki:3100
+```

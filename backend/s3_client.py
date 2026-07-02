@@ -94,7 +94,35 @@ class S3ClientManager:
 
     async def ping(self) -> None:
         client = self.connect()
-        await asyncio.to_thread(client.head_bucket, Bucket=settings.s3.bucket_name)
+        try:
+            await asyncio.to_thread(client.head_bucket, Bucket=settings.s3.bucket_name)
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="succeeded",
+                message="S3 bucket ping succeeded",
+                component="s3_client",
+                provider="s3",
+                operation="head_bucket",
+                bucket_name=settings.s3.bucket_name,
+            )
+        except Exception as e:
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="provider.request.failed",
+                status="failed",
+                message="S3 bucket ping failed",
+                component="s3_client",
+                provider="s3",
+                operation="head_bucket",
+                bucket_name=settings.s3.bucket_name,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise
 
     def build_artifact_key(
         self,
@@ -143,15 +171,47 @@ class S3ClientManager:
         if tagging:
             kwargs["Tagging"] = tagging
 
-        response = await asyncio.to_thread(client.put_object, **kwargs)
-        return {
-            "bucket": settings.s3.bucket_name,
-            "key": key,
-            "s3_uri": f"s3://{settings.s3.bucket_name}/{key}",
-            "content_type": content_type,
-            "size_bytes": len(body),
-            "version_id": response.get("VersionId"),
-        }
+        try:
+            response = await asyncio.to_thread(client.put_object, **kwargs)
+            result = {
+                "bucket": settings.s3.bucket_name,
+                "key": key,
+                "s3_uri": f"s3://{settings.s3.bucket_name}/{key}",
+                "content_type": content_type,
+                "size_bytes": len(body),
+                "version_id": response.get("VersionId"),
+            }
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="succeeded",
+                message="S3 put object succeeded",
+                component="s3_client",
+                provider="s3",
+                operation="put_object",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+                result_summary={"size_bytes": len(body), "content_type": content_type},
+            )
+            return result
+        except Exception as e:
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="provider.request.failed",
+                status="failed",
+                message="S3 put object failed",
+                component="s3_client",
+                provider="s3",
+                operation="put_object",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise
 
     async def put_json(
         self,
@@ -172,24 +232,117 @@ class S3ClientManager:
 
     async def get_bytes(self, *, key: str) -> bytes:
         client = self.connect()
-        response = await asyncio.to_thread(
-            client.get_object,
-            Bucket=settings.s3.bucket_name,
-            Key=key,
-        )
-        return await asyncio.to_thread(response["Body"].read)
+        try:
+            response = await asyncio.to_thread(
+                client.get_object,
+                Bucket=settings.s3.bucket_name,
+                Key=key,
+            )
+            body = await asyncio.to_thread(response["Body"].read)
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="succeeded",
+                message="S3 get object succeeded",
+                component="s3_client",
+                provider="s3",
+                operation="get_object",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+                result_summary={"size_bytes": len(body)},
+            )
+            return body
+        except Exception as e:
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="provider.request.failed",
+                status="failed",
+                message="S3 get object failed",
+                component="s3_client",
+                provider="s3",
+                operation="get_object",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise
 
     async def get_json(self, *, key: str) -> Any:
         body = await self.get_bytes(key=key)
-        return json.loads(body.decode("utf-8"))
+        try:
+            payload = json.loads(body.decode("utf-8"))
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="succeeded",
+                message="S3 JSON decode succeeded",
+                component="s3_client",
+                provider="s3",
+                operation="get_json",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+            )
+            return payload
+        except Exception as e:
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="provider.request.failed",
+                status="failed",
+                message="S3 JSON decode failed",
+                component="s3_client",
+                provider="s3",
+                operation="get_json",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise
 
     async def delete_object(self, *, key: str) -> None:
         client = self.connect()
-        await asyncio.to_thread(
-            client.delete_object,
-            Bucket=settings.s3.bucket_name,
-            Key=key,
-        )
+        try:
+            await asyncio.to_thread(
+                client.delete_object,
+                Bucket=settings.s3.bucket_name,
+                Key=key,
+            )
+            log_event(
+                logger,
+                level=logging.INFO,
+                event="provider.request.succeeded",
+                status="succeeded",
+                message="S3 delete object succeeded",
+                component="s3_client",
+                provider="s3",
+                operation="delete_object",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+            )
+        except Exception as e:
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="provider.request.failed",
+                status="failed",
+                message="S3 delete object failed",
+                component="s3_client",
+                provider="s3",
+                operation="delete_object",
+                bucket_name=settings.s3.bucket_name,
+                key=key,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise
 
 
 s3_client = S3ClientManager()
