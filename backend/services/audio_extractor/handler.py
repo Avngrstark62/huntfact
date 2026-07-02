@@ -65,7 +65,7 @@ async def handle_extract_audio(payload: dict | None = None) -> Optional[dict]:
     )
     
     # Extract audio using the URL
-    result = await extract_audio(cdn_link)
+    result = await extract_audio(cdn_link, hunt_id=context.get("hunt_id"))
     
     audio = result.get("audio")
     audio_format = result.get("format")

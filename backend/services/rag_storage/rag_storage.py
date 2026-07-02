@@ -225,7 +225,7 @@ def _normalize_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return normalized_sources
 
 
-def _get_embeddings(texts: list[str]) -> list[list[float]]:
+def _get_embeddings(texts: list[str], hunt_id: int | None = None) -> list[list[float]]:
     client = OpenAI(api_key=settings.openai.api_key)
     embeddings: list[list[float]] = []
 
@@ -246,6 +246,7 @@ def _get_embeddings(texts: list[str]) -> list[list[float]]:
         component="services.rag_storage",
         provider="openai",
         operation="embeddings.create",
+        hunt_id=hunt_id,
         result_summary={"embedding_count": len(embeddings)},
     )
     return embeddings
@@ -254,6 +255,7 @@ def _get_embeddings(texts: list[str]) -> list[list[float]]:
 async def store_sources_in_rag(
     sources: list[dict[str, Any]],
     collection_name: str | None = None,
+    hunt_id: int | None = None,
 ) -> dict[str, Any]:
     normalized_sources = _normalize_sources(sources)
     if not normalized_sources:
@@ -264,6 +266,7 @@ async def store_sources_in_rag(
             status="skipped",
             message="No valid sources provided for RAG storage",
             component="services.rag_storage",
+            hunt_id=hunt_id,
         )
         return {"collection_name": None, "source_count": 0, "chunk_count": 0}
 
@@ -275,6 +278,7 @@ async def store_sources_in_rag(
         status="started",
         message="Storing sources to RAG collection",
         component="services.rag_storage",
+        hunt_id=hunt_id,
         collection_name=target_collection_name,
         result_summary={"source_count": len(normalized_sources)},
     )
@@ -323,6 +327,7 @@ async def store_sources_in_rag(
             status="skipped",
             message="No chunks generated for RAG storage",
             component="services.rag_storage",
+            hunt_id=hunt_id,
             collection_name=target_collection_name,
             result_summary={"source_count": len(normalized_sources)},
         )
@@ -332,7 +337,7 @@ async def store_sources_in_rag(
             "chunk_count": 0,
         }
 
-    embeddings = _get_embeddings(documents)
+    embeddings = _get_embeddings(documents, hunt_id=hunt_id)
     collection.add(
         ids=ids,
         documents=documents,
@@ -347,6 +352,7 @@ async def store_sources_in_rag(
         status="succeeded",
         message="Stored chunks in RAG collection",
         component="services.rag_storage",
+        hunt_id=hunt_id,
         collection_name=target_collection_name,
         result_summary={"chunk_count": len(documents), "source_count": len(normalized_sources)},
     )

@@ -36,7 +36,7 @@ def _normalize_transcripts(transcripts: List[str]) -> List[str]:
     return normalized
 
 
-async def correct_transcription(transcripts: List[str]) -> str:
+async def correct_transcription(transcripts: List[str], hunt_id: int | None = None) -> str:
     """
     Merge multiple transcript candidates into a single corrected transcript.
 
@@ -56,6 +56,7 @@ async def correct_transcription(transcripts: List[str]) -> str:
             status="failed",
             message="No transcript candidates provided",
             component="services.transcription_corrector",
+            hunt_id=hunt_id,
         )
         raise ValueError("No transcript candidates provided")
 
@@ -68,6 +69,7 @@ async def correct_transcription(transcripts: List[str]) -> str:
         component="services.transcription_corrector",
         provider="openai",
         operation="transcription_correct",
+        hunt_id=hunt_id,
         result_summary={"candidate_count": len(normalized_transcripts)},
     )
 
@@ -104,6 +106,7 @@ async def correct_transcription(transcripts: List[str]) -> str:
             component="services.transcription_corrector",
             provider="openai",
             operation="transcription_correct",
+            hunt_id=hunt_id,
         )
         raise ValueError("Reasoning model returned an empty corrected transcript")
 
@@ -116,6 +119,7 @@ async def correct_transcription(transcripts: List[str]) -> str:
         component="services.transcription_corrector",
         provider="openai",
         operation="transcription_correct",
+        hunt_id=hunt_id,
         result_summary={"output_chars": len(corrected_transcript)},
     )
     return corrected_transcript

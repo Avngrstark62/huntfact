@@ -19,7 +19,7 @@ ASSEMBLYAI_UPLOAD_URL = "https://api.assemblyai.com/v2/upload"
 ASSEMBLYAI_TRANSCRIPT_URL = "https://api.assemblyai.com/v2/transcript"
 
 
-async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
+async def transcribe_audio(audio_bytes: bytes, fmt: str, hunt_id: int | None = None) -> Optional[str]:
     """
     Transcribe audio bytes using AssemblyAI REST API.
     
@@ -45,6 +45,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.assemblyai",
             provider="assemblyai",
             operation="transcribe",
+            hunt_id=hunt_id,
         )
         raise ValueError(error_msg)
     
@@ -59,6 +60,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.assemblyai",
             provider="assemblyai",
             operation="transcribe",
+            hunt_id=hunt_id,
         )
         raise ValueError(error_msg)
     
@@ -72,6 +74,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.assemblyai",
             provider="assemblyai",
             operation="transcribe",
+            hunt_id=hunt_id,
             result_summary={"audio_bytes": len(audio_bytes), "format": fmt},
         )
         
@@ -138,6 +141,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
                     component="services.transcriber.assemblyai",
                     provider="assemblyai",
                     operation="transcribe",
+                    hunt_id=hunt_id,
                 )
                 return result.get("text")
 
@@ -152,6 +156,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
                     component="services.transcriber.assemblyai",
                     provider="assemblyai",
                     operation="transcribe",
+                    hunt_id=hunt_id,
                     error_message=error_msg,
                 )
                 raise Exception(error_msg)
@@ -168,6 +173,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.assemblyai",
             provider="assemblyai",
             operation="transcribe",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
         )
@@ -183,6 +189,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.assemblyai",
             provider="assemblyai",
             operation="transcribe",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
             exc_info=True,

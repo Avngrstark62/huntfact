@@ -9,7 +9,7 @@ from logging_config import get_logger, log_event
 logger = get_logger("services.embeddings.embeddings")
 
 
-def get_embeddings(texts: List[str]) -> List[List[float]]:
+def get_embeddings(texts: List[str], hunt_id: int | None = None) -> List[List[float]]:
     """
     Get embeddings for texts using OpenAI embedding model.
 
@@ -36,6 +36,7 @@ def get_embeddings(texts: List[str]) -> List[List[float]]:
         component="services.embeddings",
         provider="openai",
         operation="embeddings.create",
+        hunt_id=hunt_id,
         result_summary={"embedding_count": len(embeddings)},
     )
 

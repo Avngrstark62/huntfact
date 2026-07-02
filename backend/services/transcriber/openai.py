@@ -16,7 +16,7 @@ from logging_config import get_logger, log_event
 logger = get_logger("services.transcriber.transcriber")
 
 
-async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
+async def transcribe_audio(audio_bytes: bytes, fmt: str, hunt_id: int | None = None) -> Optional[str]:
     """
     Transcribe audio bytes using OpenAI Whisper API.
 
@@ -42,6 +42,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.openai",
             provider="openai",
             operation="transcribe",
+            hunt_id=hunt_id,
         )
         raise ValueError(error_msg)
 
@@ -56,6 +57,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.openai",
             provider="openai",
             operation="transcribe",
+            hunt_id=hunt_id,
         )
         raise ValueError(error_msg)
 
@@ -75,6 +77,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.openai",
             provider="openai",
             operation="transcribe",
+            hunt_id=hunt_id,
             result_summary={"audio_bytes": len(audio_bytes), "format": ext},
         )
 
@@ -97,6 +100,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.openai",
             provider="openai",
             operation="transcribe",
+            hunt_id=hunt_id,
             result_summary={"transcript_chars": len(result)},
         )
         return result
@@ -111,6 +115,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.openai",
             provider="openai",
             operation="transcribe",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
         )
@@ -126,6 +131,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.openai",
             provider="openai",
             operation="transcribe",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
         )
@@ -141,6 +147,7 @@ async def transcribe_audio(audio_bytes: bytes, fmt: str) -> Optional[str]:
             component="services.transcriber.openai",
             provider="openai",
             operation="transcribe",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
             exc_info=True,

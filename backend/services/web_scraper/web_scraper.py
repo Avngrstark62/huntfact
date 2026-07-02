@@ -198,7 +198,9 @@ def _build_context(scraped_sources: List[Dict[str, str]]) -> Dict[str, Any]:
 
 
 async def build_web_verification_context(
-    claims: List[str], url_fetcher_results: List[Dict[str, Any]]
+    claims: List[str],
+    url_fetcher_results: List[Dict[str, Any]],
+    hunt_id: int | None = None,
 ) -> Dict[str, Any]:
     """
     Build a merged markdown context from LLM-selected URLs.
@@ -219,6 +221,7 @@ async def build_web_verification_context(
             status="skipped",
             message="No valid claims received for web scraping",
             component="services.web_scraper",
+            hunt_id=hunt_id,
         )
         return {"sources": []}
 
@@ -231,6 +234,7 @@ async def build_web_verification_context(
             status="skipped",
             message="No valid URL candidates received",
             component="services.web_scraper",
+            hunt_id=hunt_id,
         )
         return {"sources": []}
 
@@ -243,6 +247,7 @@ async def build_web_verification_context(
         component="services.web_scraper",
         provider="openai",
         operation="select_urls",
+        hunt_id=hunt_id,
         result_summary={"candidate_count": len(candidates), "claim_count": len(normalized_claims)},
     )
     selected_candidates = await _select_urls_with_llm(normalized_claims, candidates)
@@ -257,6 +262,7 @@ async def build_web_verification_context(
             component="services.web_scraper",
             provider="openai",
             operation="select_urls",
+            hunt_id=hunt_id,
         )
         return {"sources": []}
 
@@ -265,7 +271,7 @@ async def build_web_verification_context(
     for candidate in selected_candidates:
         url = candidate["url"]
         try:
-            markdown = fetch_markdown_with_firecrawl(url)
+            markdown = fetch_markdown_with_firecrawl(url, hunt_id=hunt_id)
         except Exception as e:
             failed_scrape_count += 1
             log_event(
@@ -277,6 +283,7 @@ async def build_web_verification_context(
                 component="services.web_scraper",
                 provider="firecrawl",
                 operation="scrape",
+                hunt_id=hunt_id,
                 url=sanitize_url(url),
                 error_type=type(e).__name__,
                 error_message=str(e),
@@ -300,6 +307,7 @@ async def build_web_verification_context(
             status="partial",
             message="Some selected URLs failed during scraping",
             component="services.web_scraper",
+            hunt_id=hunt_id,
             result_summary={
                 "selected_url_count": len(selected_candidates),
                 "scraped_success_count": len(scraped_sources),
@@ -315,6 +323,7 @@ async def build_web_verification_context(
         status="succeeded",
         message="Built web verification context",
         component="services.web_scraper",
+        hunt_id=hunt_id,
         result_summary={
             "selected_url_count": len(selected_candidates),
             "scraped_source_count": len(scraped_sources),

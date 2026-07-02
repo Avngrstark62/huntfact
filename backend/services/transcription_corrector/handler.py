@@ -71,7 +71,10 @@ async def handle_correct_transcription(payload: dict | None = None) -> Optional[
         return {"corrected_transcript_ref": None, "error": "No transcripts found in payload"}
 
     try:
-        corrected_transcript = await correct_transcription(transcripts)
+        corrected_transcript = await correct_transcription(
+            transcripts,
+            hunt_id=context.get("hunt_id"),
+        )
     except Exception as e:
         log_event(
             logger,

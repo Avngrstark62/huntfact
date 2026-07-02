@@ -77,7 +77,11 @@ async def handle_web_scraper(payload: dict[str, Any] | None = None) -> Optional[
         return {"context_ref": None, "error": "No URL fetcher results found in payload"}
 
     try:
-        context = await build_web_verification_context(claims, url_fetcher_results)
+        context = await build_web_verification_context(
+            claims,
+            url_fetcher_results,
+            hunt_id=trace_context.get("hunt_id"),
+        )
         workflow_id = str(trace_context.get("workflow_id") or "")
         step = str(trace_context.get("step") or "web_scraper")
         task_id = str(trace_context.get("task_id") or "")

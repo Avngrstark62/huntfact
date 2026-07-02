@@ -87,6 +87,7 @@ async def handle_rag_storage(payload: dict[str, Any] | None = None) -> dict[str,
         rag_reference = await store_sources_in_rag(
             sources=sources,
             collection_name=collection_name,
+            hunt_id=trace_context.get("hunt_id"),
         )
         log_event(
             logger,

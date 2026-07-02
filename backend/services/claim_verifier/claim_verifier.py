@@ -262,7 +262,11 @@ def _normalize_rows(
     return normalized_rows
 
 
-async def verify_claims_with_context(claims: List[str], rag_collection_name: str) -> Dict[str, Any]:
+async def verify_claims_with_context(
+    claims: List[str],
+    rag_collection_name: str,
+    hunt_id: int | None = None,
+) -> Dict[str, Any]:
     normalized_claims = _normalize_claims(claims)
     if not normalized_claims:
         log_event(
@@ -272,6 +276,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
             status="skipped",
             message="No valid claims provided to claim verifier",
             component="services.claim_verifier",
+            hunt_id=hunt_id,
         )
         return {"rows": []}
 
@@ -283,6 +288,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
             status="failed",
             message="No valid RAG collection name provided",
             component="services.claim_verifier",
+            hunt_id=hunt_id,
         )
         return {
             "rows": [
@@ -305,6 +311,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
         status="succeeded",
         message="Generated retrieval queries",
         component="services.claim_verifier",
+        hunt_id=hunt_id,
         result_summary={"query_count": len(retrieval_queries), "claim_count": len(normalized_claims)},
     )
 
@@ -313,7 +320,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
 
     all_chunks: List[Dict[str, Any]] = []
     for retrieval_query in retrieval_queries:
-        query_embedding = get_embeddings([retrieval_query])[0]
+        query_embedding = get_embeddings([retrieval_query], hunt_id=hunt_id)[0]
         all_chunks.extend(_extract_chunks_for_query(collection, retrieval_query, query_embedding))
 
     context_sources = _dedupe_chunks(all_chunks)
@@ -325,6 +332,7 @@ async def verify_claims_with_context(claims: List[str], rag_collection_name: str
             status="failed",
             message="No RAG chunks matched threshold",
             component="services.claim_verifier",
+            hunt_id=hunt_id,
             result_summary={"query_count": len(retrieval_queries)},
         )
         return {
@@ -447,6 +455,7 @@ Rules:
         component="services.claim_verifier",
         provider="openai",
         operation="claim_verify",
+        hunt_id=hunt_id,
         result_summary={
             "claim_count": len(normalized_claims),
             "retrieved_chunk_count": len(context_sources),

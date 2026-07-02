@@ -39,7 +39,10 @@ def _build_reel_recall_title(rows: list[FactCheckRow]) -> str:
     return "Reel fact check"
 
 
-async def _generate_hunt_metadata(rows: list[FactCheckRow]) -> tuple[str, str]:
+async def _generate_hunt_metadata(
+    rows: list[FactCheckRow],
+    hunt_id: int | None = None,
+) -> tuple[str, str]:
     if not rows:
         return "Fact-check result unavailable", "No verifiable claims were available in this run."
 
@@ -113,6 +116,7 @@ Requirements:
             component="services.save_result_to_db",
             provider="openai",
             operation="generate_hunt_metadata",
+            hunt_id=hunt_id,
             result_summary={"row_count": len(rows)},
         )
         result = await llm.call_with_schema(
@@ -131,6 +135,7 @@ Requirements:
             component="services.save_result_to_db",
             provider="openai",
             operation="generate_hunt_metadata",
+            hunt_id=hunt_id,
         )
         return title, summary
     except Exception as e:
@@ -143,6 +148,7 @@ Requirements:
             component="services.save_result_to_db",
             provider="openai",
             operation="generate_hunt_metadata",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
             exc_info=True,
@@ -175,7 +181,7 @@ async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, An
         result_summary={"row_count": len(rows)},
     )
 
-    title, summary = await _generate_hunt_metadata(rows)
+    title, summary = await _generate_hunt_metadata(rows, hunt_id=hunt_id)
     trust_score = _compute_trust_score(rows)
     row_dicts = [row.model_dump() for row in rows]
     session = db.SessionLocal()

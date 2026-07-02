@@ -41,7 +41,7 @@ def _normalize_clusters(clusters: List[ClaimCluster]) -> List[List[str]]:
     return normalized_clusters
 
 
-async def extract_claim_clusters(content: str) -> List[List[str]]:
+async def extract_claim_clusters(content: str, hunt_id: int | None = None) -> List[List[str]]:
     """
     Extract clusters of objective claims from content.
 
@@ -59,6 +59,7 @@ async def extract_claim_clusters(content: str) -> List[List[str]]:
             status="skipped",
             message="No content to extract claim clusters from",
             component="services.claim_extractor",
+            hunt_id=hunt_id,
         )
         return []
 
@@ -71,6 +72,7 @@ async def extract_claim_clusters(content: str) -> List[List[str]]:
         component="services.claim_extractor",
         provider="openai",
         operation="claim_cluster_extract",
+        hunt_id=hunt_id,
         result_summary={"content_chars": len(content)},
     )
 
@@ -143,6 +145,7 @@ Content:
             component="services.claim_extractor",
             provider="openai",
             operation="claim_cluster_extract",
+            hunt_id=hunt_id,
             result_summary={"cluster_count": len(normalized_clusters)},
         )
         return normalized_clusters
@@ -156,6 +159,7 @@ Content:
             component="services.claim_extractor",
             provider="openai",
             operation="claim_cluster_extract",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
             exc_info=True,

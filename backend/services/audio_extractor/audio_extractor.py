@@ -22,7 +22,8 @@ def _validate_url(url: str) -> bool:
 async def extract_audio(
     url: str,
     timeout: int = 60,
-    bitrate: str = "128k"
+    bitrate: str = "128k",
+    hunt_id: int | None = None,
 ) -> Dict[str, Optional[bytes | str]]:
     """
     Extract audio from URL and convert to MP3.
@@ -52,6 +53,7 @@ async def extract_audio(
             status="failed",
             message="Invalid CDN URL format for audio extraction",
             component="services.audio_extractor",
+            hunt_id=hunt_id,
             cdn_link=sanitize_url(url),
             error_message=error_msg,
         )
@@ -86,6 +88,7 @@ async def extract_audio(
                 status="timed_out",
                 message="Fast path ffmpeg timeout; falling back",
                 component="services.audio_extractor",
+                hunt_id=hunt_id,
                 timeout_seconds=timeout,
                 cdn_link=sanitize_url(url),
             )
@@ -122,6 +125,7 @@ async def extract_audio(
                         status="timed_out",
                         message="AAC to MP3 conversion timeout; falling back",
                         component="services.audio_extractor",
+                        hunt_id=hunt_id,
                         timeout_seconds=timeout,
                         cdn_link=sanitize_url(url),
                     )
@@ -135,6 +139,7 @@ async def extract_audio(
                         status="succeeded",
                         message="Audio extracted via fast path",
                         component="services.audio_extractor",
+                        hunt_id=hunt_id,
                         cdn_link=sanitize_url(url),
                         result_summary={"audio_bytes": len(mp3_audio)},
                     )
@@ -147,6 +152,7 @@ async def extract_audio(
                     status="retrying",
                     message="AAC to MP3 conversion failed; falling back",
                     component="services.audio_extractor",
+                    hunt_id=hunt_id,
                     cdn_link=sanitize_url(url),
                     error_type=type(e).__name__,
                     error_message=str(e),
@@ -161,6 +167,7 @@ async def extract_audio(
             status="failed",
             message="FFmpeg not found",
             component="services.audio_extractor",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
         )
@@ -173,6 +180,7 @@ async def extract_audio(
             status="retrying",
             message="Fast path failed; falling back",
             component="services.audio_extractor",
+            hunt_id=hunt_id,
             cdn_link=sanitize_url(url),
             error_type=type(e).__name__,
             error_message=str(e),
@@ -185,6 +193,7 @@ async def extract_audio(
         status="retrying",
         message="Fast path failed, using direct MP3 fallback",
         component="services.audio_extractor",
+        hunt_id=hunt_id,
         cdn_link=sanitize_url(url),
     )
 
@@ -218,6 +227,7 @@ async def extract_audio(
                 status="timed_out",
                 message="Fallback audio extraction timeout",
                 component="services.audio_extractor",
+                hunt_id=hunt_id,
                 timeout_seconds=timeout,
                 cdn_link=sanitize_url(url),
                 error_message=error_msg,
@@ -234,6 +244,7 @@ async def extract_audio(
                 status="failed",
                 message="Fallback ffmpeg returned non-zero exit",
                 component="services.audio_extractor",
+                hunt_id=hunt_id,
                 cdn_link=sanitize_url(url),
                 return_code=process.returncode,
                 error_message=error_msg,
@@ -249,6 +260,7 @@ async def extract_audio(
                 status="failed",
                 message="Fallback ffmpeg produced no output",
                 component="services.audio_extractor",
+                hunt_id=hunt_id,
                 cdn_link=sanitize_url(url),
                 return_code=process.returncode,
                 error_message=error_msg,
@@ -262,6 +274,7 @@ async def extract_audio(
             status="succeeded",
             message="Audio extracted via fallback",
             component="services.audio_extractor",
+            hunt_id=hunt_id,
             cdn_link=sanitize_url(url),
             result_summary={"audio_bytes": len(mp3_audio)},
         )
@@ -276,6 +289,7 @@ async def extract_audio(
             status="failed",
             message="FFmpeg not found in fallback",
             component="services.audio_extractor",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
         )
@@ -289,6 +303,7 @@ async def extract_audio(
             status="failed",
             message="Unexpected fallback audio extraction error",
             component="services.audio_extractor",
+            hunt_id=hunt_id,
             cdn_link=sanitize_url(url),
             error_type=type(e).__name__,
             error_message=error_msg,

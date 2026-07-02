@@ -181,7 +181,11 @@ def _extract_search_results(search_results: List[Dict[str, Any]]) -> List[Dict[s
     return extracted_results
 
 
-def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+def _search_web_via_searxng(
+    query: str,
+    max_results: int = 10,
+    hunt_id: int | None = None,
+) -> List[Dict[str, Any]]:
     query_fp = _query_fingerprint(query)
     query_preview = _truncate(query, QUERY_PREVIEW_MAX_CHARS)
     log_event(
@@ -193,6 +197,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
         component="services.url_fetcher",
         provider="searxng",
         operation="search",
+        hunt_id=hunt_id,
         query_fingerprint=query_fp,
         query=query_preview,
     )
@@ -212,6 +217,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             component="services.url_fetcher",
             provider="searxng",
             operation="search",
+            hunt_id=hunt_id,
             query_fingerprint=query_fp,
             query=query_preview,
             error_type=type(e).__name__,
@@ -230,6 +236,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             component="services.url_fetcher",
             provider="searxng",
             operation="search",
+            hunt_id=hunt_id,
             query_fingerprint=query_fp,
             query=query_preview,
             http_status=response.status_code,
@@ -250,6 +257,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             component="services.url_fetcher",
             provider="searxng",
             operation="search",
+            hunt_id=hunt_id,
             query_fingerprint=query_fp,
             query=query_preview,
             error_type=type(e).__name__,
@@ -268,6 +276,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
             component="services.url_fetcher",
             provider="searxng",
             operation="search",
+            hunt_id=hunt_id,
             query_fingerprint=query_fp,
             query=query_preview,
         )
@@ -292,6 +301,7 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
         component="services.url_fetcher",
         provider="searxng",
         operation="search",
+        hunt_id=hunt_id,
         query_fingerprint=query_fp,
         query=query_preview,
         result_summary={"url_count": len(normalized_results)},
@@ -299,7 +309,10 @@ def _search_web_via_searxng(query: str, max_results: int = 10) -> List[Dict[str,
     return normalized_results
 
 
-async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
+async def fetch_urls_for_claims(
+    claims: List[str],
+    hunt_id: int | None = None,
+) -> List[Dict[str, Any]]:
     """
     Generate web queries for related claims and fetch result URLs per query.
 
@@ -323,6 +336,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
             status="skipped",
             message="No claims provided for URL fetching",
             component="services.url_fetcher",
+            hunt_id=hunt_id,
         )
         return []
 
@@ -335,6 +349,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
             status="skipped",
             message="Claims are empty after normalization",
             component="services.url_fetcher",
+            hunt_id=hunt_id,
         )
         return []
 
@@ -345,6 +360,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
         status="started",
         message="Generating web queries",
         component="services.url_fetcher",
+        hunt_id=hunt_id,
         result_summary={"claim_count": len(cleaned_claims)},
     )
     queries = await _generate_web_queries(cleaned_claims)
@@ -355,6 +371,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
         status="succeeded",
         message="Generated web queries",
         component="services.url_fetcher",
+        hunt_id=hunt_id,
         result_summary={"query_count": len(queries), "queries": [_truncate(q, QUERY_PREVIEW_MAX_CHARS) for q in queries]},
     )
 
@@ -371,10 +388,15 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
             component="services.url_fetcher",
             provider="searxng",
             operation="search",
+            hunt_id=hunt_id,
             query_fingerprint=query_fp,
         )
         try:
-            search_results = _search_web_via_searxng(query=query, max_results=10)
+            search_results = _search_web_via_searxng(
+                query=query,
+                max_results=10,
+                hunt_id=hunt_id,
+            )
         except Exception as e:
             log_event(
                 logger,
@@ -385,6 +407,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
                 component="services.url_fetcher",
                 provider="searxng",
                 operation="search",
+                hunt_id=hunt_id,
                 query_fingerprint=query_fp,
                 error_type=type(e).__name__,
                 error_message=str(e),
@@ -402,6 +425,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
             component="services.url_fetcher",
             provider="searxng",
             operation="search",
+            hunt_id=hunt_id,
             query_fingerprint=query_fp,
             result_summary={
                 "query": _truncate(query, QUERY_PREVIEW_MAX_CHARS),
@@ -426,6 +450,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
                 status="retrying",
                 message="Waiting before next web search query",
                 component="services.url_fetcher",
+                hunt_id=hunt_id,
                 delay_seconds=INTER_QUERY_DELAY_SECONDS,
             )
             await asyncio.sleep(INTER_QUERY_DELAY_SECONDS)
@@ -451,6 +476,7 @@ async def fetch_urls_for_claims(claims: List[str]) -> List[Dict[str, Any]]:
         status="succeeded",
         message="URL fetcher completed all query searches",
         component="services.url_fetcher",
+        hunt_id=hunt_id,
         result_summary={
             "query_count": len(results),
             "total_url_count": total_urls,

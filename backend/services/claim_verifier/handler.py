@@ -66,7 +66,11 @@ async def handle_claim_verifier(payload: dict[str, Any] | None = None) -> Option
         return {"table_ref": None, "error": "No rag_collection_name found in payload"}
 
     try:
-        table = await verify_claims_with_context(claims, rag_collection_name.strip())
+        table = await verify_claims_with_context(
+            claims,
+            rag_collection_name.strip(),
+            hunt_id=trace_context.get("hunt_id"),
+        )
         workflow_id = str(trace_context.get("workflow_id") or "")
         step = str(trace_context.get("step") or "claim_verifier")
         task_id = str(trace_context.get("task_id") or "")

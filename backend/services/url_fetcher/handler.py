@@ -50,7 +50,10 @@ async def handle_url_fetcher(payload: dict | None = None) -> Optional[dict]:
         return {"results": None, "error": "No claims list found in payload"}
 
     try:
-        results = await fetch_urls_for_claims(claims)
+        results = await fetch_urls_for_claims(
+            claims,
+            hunt_id=context.get("hunt_id"),
+        )
         total_url_count = sum(
             len(item.get("urls", []))
             for item in results

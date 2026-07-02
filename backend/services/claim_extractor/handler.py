@@ -62,7 +62,10 @@ async def handle_extract_claim_clusters(payload: dict | None = None) -> Optional
         )
         return {"clusters": None, "error": "No content found in payload"}
 
-    clusters = await extract_claim_clusters(content)
+    clusters = await extract_claim_clusters(
+        content,
+        hunt_id=trace_context.get("hunt_id"),
+    )
 
     log_event(
         logger,

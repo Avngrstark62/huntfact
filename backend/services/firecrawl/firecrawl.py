@@ -7,7 +7,7 @@ from logging_config import get_logger, log_event, sanitize_url
 logger = get_logger("services.firecrawl.firecrawl")
 
 
-def fetch_markdown_with_firecrawl(url: str) -> str:
+def fetch_markdown_with_firecrawl(url: str, hunt_id: int | None = None) -> str:
     """Fetch markdown content for a URL using the Firecrawl SDK."""
     cleaned_url = url.strip()
     if not cleaned_url:
@@ -20,6 +20,7 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
             component="services.firecrawl",
             provider="firecrawl",
             operation="scrape",
+            hunt_id=hunt_id,
         )
         raise ValueError("URL is required")
 
@@ -36,6 +37,7 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
         component="services.firecrawl",
         provider="firecrawl",
         operation="scrape",
+        hunt_id=hunt_id,
         url=sanitize_url(cleaned_url),
     )
     try:
@@ -49,6 +51,7 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
             component="services.firecrawl",
             provider="firecrawl",
             operation="scrape",
+            hunt_id=hunt_id,
             url=sanitize_url(cleaned_url),
         )
     except Exception as e:
@@ -61,6 +64,7 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
             component="services.firecrawl",
             provider="firecrawl",
             operation="scrape",
+            hunt_id=hunt_id,
             url=sanitize_url(cleaned_url),
             error_type=type(e).__name__,
             error_message=str(e),
@@ -86,6 +90,7 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
             component="services.firecrawl",
             provider="firecrawl",
             operation="scrape",
+            hunt_id=hunt_id,
             url=sanitize_url(cleaned_url),
         )
         raise RuntimeError(f"Firecrawl response missing markdown for URL '{cleaned_url}'")

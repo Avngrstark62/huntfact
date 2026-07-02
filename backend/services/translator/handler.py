@@ -65,7 +65,10 @@ async def handle_translate(payload: dict | None = None) -> Optional[dict]:
         )
         return {"translated_text_ref": None, "error": "No transcript_text found in payload"}
     
-    translated_text = await translate_text(transcript_text)
+    translated_text = await translate_text(
+        transcript_text,
+        hunt_id=context.get("hunt_id"),
+    )
     
     if not translated_text:
         log_event(

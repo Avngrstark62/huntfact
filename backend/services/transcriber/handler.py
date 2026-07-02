@@ -119,9 +119,17 @@ async def handle_transcribe(payload: dict | None = None) -> Optional[dict]:
     # Transcribe audio
     transcriber_service = payload_data.get("transcriber_service", "assemblyai")
     if transcriber_service == "assemblyai":
-        result = await assemblyai_transcribe_audio(audio_bytes, audio_format)
+        result = await assemblyai_transcribe_audio(
+            audio_bytes,
+            audio_format,
+            hunt_id=context.get("hunt_id"),
+        )
     elif transcriber_service == "openai":
-        result = await openai_transcribe_audio(audio_bytes, audio_format)
+        result = await openai_transcribe_audio(
+            audio_bytes,
+            audio_format,
+            hunt_id=context.get("hunt_id"),
+        )
     else:
         log_event(
             logger,

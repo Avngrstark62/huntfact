@@ -12,7 +12,7 @@ class TranslationResponse(BaseModel):
     translated_text: str
 
 
-async def translate_text(text: str) -> str:
+async def translate_text(text: str, hunt_id: int | None = None) -> str:
     """
     Translate text to English using OpenAI.
 
@@ -30,6 +30,7 @@ async def translate_text(text: str) -> str:
             status="skipped",
             message="No text to translate",
             component="services.translator",
+            hunt_id=hunt_id,
         )
         return text
 
@@ -42,6 +43,7 @@ async def translate_text(text: str) -> str:
         component="services.translator",
         provider="openai",
         operation="translate",
+        hunt_id=hunt_id,
         result_summary={"input_chars": len(text)},
     )
 
@@ -103,6 +105,7 @@ Translate this text to English and return only the translated text:
             component="services.translator",
             provider="openai",
             operation="translate",
+            hunt_id=hunt_id,
             result_summary={"output_chars": len(final_text)},
         )
         return final_text
@@ -116,6 +119,7 @@ Translate this text to English and return only the translated text:
             component="services.translator",
             provider="openai",
             operation="translate",
+            hunt_id=hunt_id,
             error_type=type(e).__name__,
             error_message=str(e),
             exc_info=True,
