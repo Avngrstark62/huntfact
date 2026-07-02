@@ -261,11 +261,13 @@ async def build_web_verification_context(
         return {"sources": []}
 
     scraped_sources: List[Dict[str, str]] = []
+    failed_scrape_count = 0
     for candidate in selected_candidates:
         url = candidate["url"]
         try:
             markdown = fetch_markdown_with_firecrawl(url)
         except Exception as e:
+            failed_scrape_count += 1
             log_event(
                 logger,
                 level=logging.ERROR,
@@ -290,6 +292,21 @@ async def build_web_verification_context(
             }
         )
 
+    if failed_scrape_count > 0:
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="task.failed",
+            status="partial",
+            message="Some selected URLs failed during scraping",
+            component="services.web_scraper",
+            result_summary={
+                "selected_url_count": len(selected_candidates),
+                "scraped_success_count": len(scraped_sources),
+                "scraped_failed_count": failed_scrape_count,
+            },
+        )
+
     context = _build_context(scraped_sources)
     log_event(
         logger,
@@ -298,6 +315,10 @@ async def build_web_verification_context(
         status="succeeded",
         message="Built web verification context",
         component="services.web_scraper",
-        result_summary={"scraped_source_count": len(scraped_sources)},
+        result_summary={
+            "selected_url_count": len(selected_candidates),
+            "scraped_source_count": len(scraped_sources),
+            "scraped_failed_count": failed_scrape_count,
+        },
     )
     return context

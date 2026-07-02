@@ -11,6 +11,16 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
     """Fetch markdown content for a URL using the Firecrawl SDK."""
     cleaned_url = url.strip()
     if not cleaned_url:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Firecrawl scrape received empty URL",
+            component="services.firecrawl",
+            provider="firecrawl",
+            operation="scrape",
+        )
         raise ValueError("URL is required")
 
     app = Firecrawl(api_url=settings.firecrawl.api_url)
@@ -56,8 +66,7 @@ def fetch_markdown_with_firecrawl(url: str) -> str:
             error_message=str(e),
             exc_info=True,
         )
-        return ""
-        # raise RuntimeError(f"Firecrawl scrape failed for URL '{cleaned_url}'") from e
+        raise RuntimeError(f"Firecrawl scrape failed for URL '{cleaned_url}'") from e
 
     markdown = ""
     if isinstance(response, dict):
