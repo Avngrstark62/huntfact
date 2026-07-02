@@ -17,6 +17,20 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_BATCH_SIZE = 100
 
 
+def _resolve_chroma_max_batch_size(chroma: Any) -> int | None:
+    """Read max batch size from Chroma client when available."""
+    get_max_batch_size = getattr(chroma, "get_max_batch_size", None)
+    if not callable(get_max_batch_size):
+        return None
+
+    try:
+        max_batch_size = int(get_max_batch_size())
+    except Exception:
+        return None
+
+    return max_batch_size if max_batch_size > 0 else None
+
+
 def _sanitize_collection_name(collection_name: str | None) -> str:
     if not collection_name:
         return "rag"
@@ -338,12 +352,18 @@ async def store_sources_in_rag(
         }
 
     embeddings = _get_embeddings(documents, hunt_id=hunt_id)
-    collection.add(
-        ids=ids,
-        documents=documents,
-        embeddings=embeddings,
-        metadatas=metadatas,
-    )
+    if not (len(ids) == len(documents) == len(embeddings) == len(metadatas)):
+        raise RuntimeError("RAG payload vectors are misaligned before Chroma insert")
+
+    max_batch_size = _resolve_chroma_max_batch_size(chroma) or len(documents)
+    for start in range(0, len(documents), max_batch_size):
+        end = min(start + max_batch_size, len(documents))
+        collection.add(
+            ids=ids[start:end],
+            documents=documents[start:end],
+            embeddings=embeddings[start:end],
+            metadatas=metadatas[start:end],
+        )
 
     log_event(
         logger,
@@ -354,7 +374,12 @@ async def store_sources_in_rag(
         component="services.rag_storage",
         hunt_id=hunt_id,
         collection_name=target_collection_name,
-        result_summary={"chunk_count": len(documents), "source_count": len(normalized_sources)},
+        result_summary={
+            "chunk_count": len(documents),
+            "source_count": len(normalized_sources),
+            "batch_size": max_batch_size,
+            "batch_count": (len(documents) + max_batch_size - 1) // max_batch_size,
+        },
     )
     return {
         "collection_name": target_collection_name,
