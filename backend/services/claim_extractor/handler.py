@@ -2,6 +2,7 @@ from typing import Optional
 import logging
 
 from logging_config import get_logger, log_event
+from s3_client import s3_client
 from services.claim_extractor.claim_extractor import extract_claim_clusters
 
 logger = get_logger("services.claim_extractor.handler")
@@ -34,6 +35,17 @@ async def handle_extract_claim_clusters(payload: dict | None = None) -> Optional
     )
 
     content = (payload or {}).get("content")
+    translated_text_ref = (payload or {}).get("translated_text_ref")
+    if not content and isinstance(translated_text_ref, dict):
+        translated_key = translated_text_ref.get("key")
+        if isinstance(translated_key, str) and translated_key.strip():
+            try:
+                translated_payload = await s3_client.get_json(key=translated_key.strip())
+                maybe_content = translated_payload.get("translated_text") if isinstance(translated_payload, dict) else None
+                if isinstance(maybe_content, str) and maybe_content.strip():
+                    content = maybe_content
+            except Exception:
+                content = None
 
     if not content:
         log_event(
@@ -41,7 +53,7 @@ async def handle_extract_claim_clusters(payload: dict | None = None) -> Optional
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="No content found in payload",
+            message="No content found in task input or translated_text_ref",
             component="services.claim_extractor.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),

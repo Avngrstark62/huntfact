@@ -2,6 +2,7 @@ from typing import Any, Optional
 import logging
 
 from logging_config import get_logger, log_event
+from s3_client import s3_client
 from services.web_scraper.web_scraper import build_web_verification_context
 
 logger = get_logger("services.web_scraper.handler")
@@ -50,14 +51,14 @@ async def handle_web_scraper(payload: dict[str, Any] | None = None) -> Optional[
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="No claims list found in payload",
+            message="No claims list found in task input",
             component="services.web_scraper.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),
             request_id=trace_context.get("request_id"),
             task_id=trace_context.get("task_id"),
         )
-        return {"context": None, "error": "No claims list found in payload"}
+        return {"context_ref": None, "error": "No claims list found in payload"}
 
     url_fetcher_results = _extract_url_fetcher_results(payload or {})
     if not isinstance(url_fetcher_results, list):
@@ -66,17 +67,40 @@ async def handle_web_scraper(payload: dict[str, Any] | None = None) -> Optional[
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="No URL fetcher results found in payload",
+            message="No URL fetcher results found in task input",
             component="services.web_scraper.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),
             request_id=trace_context.get("request_id"),
             task_id=trace_context.get("task_id"),
         )
-        return {"context": None, "error": "No URL fetcher results found in payload"}
+        return {"context_ref": None, "error": "No URL fetcher results found in payload"}
 
     try:
         context = await build_web_verification_context(claims, url_fetcher_results)
+        workflow_id = str(trace_context.get("workflow_id") or "")
+        step = str(trace_context.get("step") or "web_scraper")
+        task_id = str(trace_context.get("task_id") or "")
+        artifact_key = s3_client.build_artifact_key(
+            workflow_id=workflow_id,
+            step=step,
+            task_id=task_id,
+            artifact_name="web_context",
+            extension="json",
+        )
+        context_ref = await s3_client.put_json(
+            key=artifact_key,
+            payload=context,
+            metadata={
+                "workflow_id": workflow_id,
+                "step": step,
+                "task_id": task_id,
+            },
+            tags={
+                "workflow_id": workflow_id,
+                "step": step,
+            },
+        )
         log_event(
             logger,
             level=logging.INFO,
@@ -89,7 +113,7 @@ async def handle_web_scraper(payload: dict[str, Any] | None = None) -> Optional[
             request_id=trace_context.get("request_id"),
             task_id=trace_context.get("task_id"),
         )
-        return {"context": context, "error": None}
+        return {"context_ref": context_ref, "error": None}
     except Exception as e:
         log_event(
             logger,
@@ -106,4 +130,4 @@ async def handle_web_scraper(payload: dict[str, Any] | None = None) -> Optional[
             error_message=str(e),
             exc_info=True,
         )
-        return {"context": None, "error": str(e)}
+        return {"context_ref": None, "error": str(e)}

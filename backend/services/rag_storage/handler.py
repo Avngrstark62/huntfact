@@ -2,6 +2,7 @@ from typing import Any
 import logging
 
 from logging_config import get_logger, log_event
+from s3_client import s3_client
 from services.rag_storage.rag_storage import store_sources_in_rag
 
 logger = get_logger("services.rag_storage.handler")
@@ -35,12 +36,29 @@ async def handle_rag_storage(payload: dict[str, Any] | None = None) -> dict[str,
     body = payload or {}
     sources = _extract_sources(body)
     if not sources:
+        context_ref = body.get("context_ref")
+        if isinstance(context_ref, dict):
+            context_key = context_ref.get("key")
+            if isinstance(context_key, str) and context_key.strip():
+                try:
+                    context_payload = await s3_client.get_json(key=context_key.strip())
+                    context_sources = (
+                        context_payload.get("sources")
+                        if isinstance(context_payload, dict)
+                        else None
+                    )
+                    if isinstance(context_sources, list):
+                        sources = context_sources
+                except Exception:
+                    sources = []
+
+    if not sources:
         log_event(
             logger,
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="No sources list found in payload",
+            message="No sources found in task input or S3 context_ref",
             component="services.rag_storage.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),
@@ -56,7 +74,7 @@ async def handle_rag_storage(payload: dict[str, Any] | None = None) -> dict[str,
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="Invalid collection_name in payload",
+            message="Invalid collection_name in task input",
             component="services.rag_storage.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),

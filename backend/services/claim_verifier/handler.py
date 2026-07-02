@@ -2,6 +2,7 @@ from typing import Any, Optional
 import logging
 
 from logging_config import get_logger, log_event
+from s3_client import s3_client
 from services.claim_verifier.claim_verifier import verify_claims_with_context
 
 logger = get_logger("services.claim_verifier.handler")
@@ -32,14 +33,14 @@ async def handle_claim_verifier(payload: dict[str, Any] | None = None) -> Option
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="No claims list found in payload",
+            message="No claims list found in task input",
             component="services.claim_verifier.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),
             request_id=trace_context.get("request_id"),
             task_id=trace_context.get("task_id"),
         )
-        return {"table": None, "error": "No claims list found in payload"}
+        return {"table_ref": None, "error": "No claims list found in payload"}
 
     rag_collection_name = body.get("rag_collection_name")
     if not isinstance(rag_collection_name, str):
@@ -55,17 +56,40 @@ async def handle_claim_verifier(payload: dict[str, Any] | None = None) -> Option
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="No rag_collection_name found in payload",
+            message="No rag_collection_name found in task input",
             component="services.claim_verifier.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),
             request_id=trace_context.get("request_id"),
             task_id=trace_context.get("task_id"),
         )
-        return {"table": None, "error": "No rag_collection_name found in payload"}
+        return {"table_ref": None, "error": "No rag_collection_name found in payload"}
 
     try:
         table = await verify_claims_with_context(claims, rag_collection_name.strip())
+        workflow_id = str(trace_context.get("workflow_id") or "")
+        step = str(trace_context.get("step") or "claim_verifier")
+        task_id = str(trace_context.get("task_id") or "")
+        artifact_key = s3_client.build_artifact_key(
+            workflow_id=workflow_id,
+            step=step,
+            task_id=task_id,
+            artifact_name="result_table",
+            extension="json",
+        )
+        table_ref = await s3_client.put_json(
+            key=artifact_key,
+            payload=table,
+            metadata={
+                "workflow_id": workflow_id,
+                "step": step,
+                "task_id": task_id,
+            },
+            tags={
+                "workflow_id": workflow_id,
+                "step": step,
+            },
+        )
         log_event(
             logger,
             level=logging.INFO,
@@ -79,7 +103,7 @@ async def handle_claim_verifier(payload: dict[str, Any] | None = None) -> Option
             task_id=trace_context.get("task_id"),
             result_summary={"row_count": len((table or {}).get("rows") or [])},
         )
-        return {"table": table, "error": None}
+        return {"table_ref": table_ref, "error": None}
     except Exception as e:
         log_event(
             logger,
@@ -96,4 +120,4 @@ async def handle_claim_verifier(payload: dict[str, Any] | None = None) -> Option
             error_message=str(e),
             exc_info=True,
         )
-        return {"table": None, "error": str(e)}
+        return {"table_ref": None, "error": str(e)}

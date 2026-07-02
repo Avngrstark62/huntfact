@@ -5,6 +5,7 @@ import signal
 
 import aio_pika
 
+from config import settings
 from logging_config import get_logger, log_event, setup_logging
 from firebase_config import initialize_firebase
 from rmq.constants import (
@@ -22,6 +23,7 @@ from rmq.constants import (
 from rmq.consumer import start_task_consumer
 from rmq.connection import rabbitmq
 from rmq.schemas import validate_task_step_result
+from s3_client import s3_client
 from services.audio_extractor.handler import handle_extract_audio
 from services.transcriber.handler import handle_transcribe
 from services.translator.handler import handle_translate
@@ -387,6 +389,22 @@ async def handle_task(msg: dict, raw_message: aio_pika.IncomingMessage):
 
 async def main():
     setup_logging()
+    if settings.s3.enabled:
+        try:
+            await s3_client.ping()
+        except Exception as e:
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="app.lifecycle.failed",
+                status="failed",
+                message="S3 initialization failed at worker startup",
+                component="worker",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise
     try:
         initialize_firebase()
     except Exception as e:

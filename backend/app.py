@@ -22,6 +22,7 @@ import db.models as db_models  # noqa: F401
 from rmq.connection import rabbitmq
 from firebase_config import initialize_firebase
 from chroma_client import chroma_client
+from s3_client import s3_client
 from services.rate_limit import enforce_global_ip_rate_limit
 
 setup_logging()
@@ -303,6 +304,30 @@ class App:
                     exc_info=True,
                 )
                 chroma_client.is_healthy = False
+
+            if settings.s3.enabled:
+                try:
+                    await s3_client.ping()
+                    log_event(
+                        logger,
+                        level=logging.INFO,
+                        event="app.lifecycle.succeeded",
+                        status="succeeded",
+                        message="S3 connected",
+                        component="app",
+                    )
+                except Exception as e:
+                    log_event(
+                        logger,
+                        level=logging.ERROR,
+                        event="app.lifecycle.failed",
+                        status="failed",
+                        message="Failed to initialize S3",
+                        component="app",
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                        exc_info=True,
+                    )
 
         @self.app.on_event("shutdown")
         async def shutdown_event():

@@ -1,7 +1,7 @@
 from typing import Optional
-import base64
 import logging
 from logging_config import get_logger, log_event, sanitize_url
+from s3_client import s3_client
 from services.audio_extractor.audio_extractor import extract_audio
 
 logger = get_logger("services.audio_extractor.handler")
@@ -41,7 +41,7 @@ async def handle_extract_audio(payload: dict | None = None) -> Optional[dict]:
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="No cdn_link found in payload",
+            message="No cdn_link found in task input",
             component="services.audio_extractor.handler",
             workflow_id=context.get("workflow_id"),
             hunt_id=context.get("hunt_id"),
@@ -67,9 +67,8 @@ async def handle_extract_audio(payload: dict | None = None) -> Optional[dict]:
     # Extract audio using the URL
     result = await extract_audio(cdn_link)
     
-    # Update job state with audio extraction result
     audio = result.get("audio")
-    audio_bytes_b64 = base64.b64encode(audio).decode("utf-8") if audio else None
+    audio_format = result.get("format")
     
     if result.get("error"):
         log_event(
@@ -86,10 +85,42 @@ async def handle_extract_audio(payload: dict | None = None) -> Optional[dict]:
             error_message=result.get("error"),
         )
         return {
-            "audio_bytes_b64": None,
-            "audio_format": result.get("format"),
+            "audio_ref": None,
+            "audio_format": audio_format,
             "error": result.get("error"),
         }
+
+    if not isinstance(audio, (bytes, bytearray)):
+        return {
+            "audio_ref": None,
+            "audio_format": audio_format,
+            "error": "Audio extraction returned invalid audio bytes",
+        }
+
+    workflow_id = str(context.get("workflow_id") or "")
+    step = str(context.get("step") or "extract_audio")
+    task_id = str(context.get("task_id") or "")
+    artifact_key = s3_client.build_artifact_key(
+        workflow_id=workflow_id,
+        step=step,
+        task_id=task_id,
+        artifact_name="audio",
+        extension=audio_format or "mp3",
+    )
+    audio_ref = await s3_client.put_bytes(
+        key=artifact_key,
+        body=bytes(audio),
+        content_type="audio/mpeg",
+        metadata={
+            "workflow_id": workflow_id,
+            "step": step,
+            "task_id": task_id,
+        },
+        tags={
+            "workflow_id": workflow_id,
+            "step": step,
+        },
+    )
     
     log_event(
         logger,
@@ -102,11 +133,11 @@ async def handle_extract_audio(payload: dict | None = None) -> Optional[dict]:
         hunt_id=context.get("hunt_id"),
         request_id=context.get("request_id"),
         task_id=context.get("task_id"),
-        result_summary={"audio_format": result.get("format"), "bytes_b64_len": len(audio_bytes_b64 or "")},
+        result_summary={"audio_format": audio_format, "audio_size_bytes": len(audio)},
     )
     
     return {
-        "audio_bytes_b64": audio_bytes_b64,
-        "audio_format": result.get("format"),
+        "audio_ref": audio_ref,
+        "audio_format": audio_format,
         "error": None,
     }

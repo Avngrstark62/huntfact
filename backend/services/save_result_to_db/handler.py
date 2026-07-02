@@ -2,6 +2,7 @@ from typing import Any, Optional
 import logging
 
 from logging_config import get_logger, log_event
+from s3_client import s3_client
 from services.save_result_to_db.save_result_to_db import save_result_to_db
 
 logger = get_logger("services.save_result_to_db.handler")
@@ -35,6 +36,7 @@ async def handle_save_result_to_db(payload: dict[str, Any] | None = None) -> Opt
 
     raw_hunt_id = (payload or {}).get("hunt_id")
     table = (payload or {}).get("table")
+    table_ref = (payload or {}).get("table_ref")
 
     if not isinstance(raw_hunt_id, int):
         log_event(
@@ -42,7 +44,7 @@ async def handle_save_result_to_db(payload: dict[str, Any] | None = None) -> Opt
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="Missing or invalid hunt_id in payload",
+            message="Missing or invalid hunt_id in task input",
             component="services.save_result_to_db.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),
@@ -51,13 +53,37 @@ async def handle_save_result_to_db(payload: dict[str, Any] | None = None) -> Opt
         )
         return {"saved": None, "error": "Missing or invalid hunt_id in payload"}
 
+    if not isinstance(table, dict) and isinstance(table_ref, dict):
+        table_key = table_ref.get("key")
+        if isinstance(table_key, str) and table_key.strip():
+            try:
+                table_payload = await s3_client.get_json(key=table_key.strip())
+                if isinstance(table_payload, dict):
+                    table = table_payload
+            except Exception as e:
+                log_event(
+                    logger,
+                    level=logging.ERROR,
+                    event="task.failed",
+                    status="failed",
+                    message="Failed to download table from S3",
+                    component="services.save_result_to_db.handler",
+                    workflow_id=trace_context.get("workflow_id"),
+                    hunt_id=raw_hunt_id if isinstance(raw_hunt_id, int) else trace_context.get("hunt_id"),
+                    request_id=trace_context.get("request_id"),
+                    task_id=trace_context.get("task_id"),
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
+
     if not isinstance(table, dict):
         log_event(
             logger,
             level=logging.ERROR,
             event="task.failed",
             status="failed",
-            message="Missing or invalid table in payload",
+            message="Missing or invalid result table in task input",
             component="services.save_result_to_db.handler",
             workflow_id=trace_context.get("workflow_id"),
             hunt_id=trace_context.get("hunt_id"),

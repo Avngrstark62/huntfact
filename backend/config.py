@@ -115,6 +115,23 @@ class WorkflowCleanupSettings(SectionSettings):
     interval_seconds: int = 30
 
 
+class S3Settings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="S3_",
+    )
+    enabled: bool = False
+    bucket_name: str = ""
+    region_name: str = ""
+    endpoint_url: str | None = None
+    access_key_id: str | None = None
+    secret_access_key: str | None = None
+    session_token: str | None = None
+    temp_prefix: str = "tmp/workflows"
+    final_prefix: str = "final/workflows"
+
+
 class SecuritySettings(SectionSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -178,6 +195,7 @@ class Settings(BaseSettings):
     firecrawl: FirecrawlSettings = Field(default_factory=FirecrawlSettings)
     workflow_admission: WorkflowAdmissionSettings = Field(default_factory=WorkflowAdmissionSettings)
     workflow_cleanup: WorkflowCleanupSettings = Field(default_factory=WorkflowCleanupSettings)
+    s3: S3Settings = Field(default_factory=S3Settings)
     security: SecuritySettings = Field(default_factory=SecuritySettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)

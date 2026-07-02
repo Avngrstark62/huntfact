@@ -2,7 +2,6 @@ from typing import Any, Dict, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from result_schema import FactCheckRow
 from rmq.constants import (
     CLAIM_VERIFIER,
     EXTRACT_AUDIO,
@@ -31,21 +30,30 @@ class TaskMessage(BaseModel):
     retry_count: int = Field(default=0, description="Retry count")
 
 
+class S3ArtifactRef(BaseModel):
+    bucket: str = Field(..., min_length=1)
+    key: str = Field(..., min_length=1)
+    s3_uri: str | None = None
+    content_type: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
+    version_id: str | None = None
+
+
 class ExtractAudioResult(BaseModel):
-    audio_bytes_b64: str = Field(..., min_length=1)
+    audio_ref: S3ArtifactRef
     audio_format: str = Field(..., min_length=1)
 
 
 class TranscribeResult(BaseModel):
-    transcript_text: str = Field(..., min_length=1)
+    transcript_ref: S3ArtifactRef
 
 
 class TranscriptionCorrectResult(BaseModel):
-    corrected_transcript: str = Field(..., min_length=1)
+    corrected_transcript_ref: S3ArtifactRef
 
 
 class TranslateResult(BaseModel):
-    translated_text: str = Field(..., min_length=1)
+    translated_text_ref: S3ArtifactRef
 
 
 class ExtractClaimClustersResult(BaseModel):
@@ -79,7 +87,7 @@ class WebVerificationContext(BaseModel):
 
 
 class WebScraperResult(BaseModel):
-    context: WebVerificationContext
+    context_ref: S3ArtifactRef
 
 
 class RagReference(BaseModel):
@@ -105,12 +113,12 @@ class ClaimVerifierTable(BaseModel):
 
 
 class ClaimVerifierResult(BaseModel):
-    table: ClaimVerifierTable
+    table_ref: S3ArtifactRef
 
 
 class SavedHuntResult(BaseModel):
     hunt_id: int
-    result: list[FactCheckRow]
+    row_count: int = Field(ge=0)
     title: str
     summary: str
     trust_score: int = Field(ge=0, le=100)

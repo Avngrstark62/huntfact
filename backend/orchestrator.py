@@ -6,6 +6,7 @@ import uuid
 from pydantic import ValidationError
 from logging_config import get_logger, log_event, setup_logging
 
+from config import settings
 from rmq.connection import rabbitmq
 from rmq.consumer import start_workflow_consumer
 from rmq.schemas import (
@@ -16,6 +17,7 @@ from rmq.schemas import (
     validate_task_step_result,
 )
 from rmq.publisher import publish_task_rpc
+from s3_client import s3_client
 from services.workflow_admission.workflow_admission import clear_workflow_admission
 from rmq.constants import (
     EXTRACT_AUDIO,
@@ -239,7 +241,7 @@ def _handle_expected_input_failure(
 
 def _transcribe_payload(extract_result: dict, service: str) -> dict:
     return {
-        "audio_bytes_b64": extract_result.get("audio_bytes_b64"),
+        "audio_ref": extract_result.get("audio_ref"),
         "audio_format": extract_result.get("audio_format"),
         "transcriber_service": service,
     }
@@ -310,44 +312,49 @@ async def _run_cluster_verification_loop(cluster: list, workflow_context: dict) 
     )
     if web_scraper_error:
         raise RuntimeError(web_scraper_error)
-    context = web_scraper_result.get("context") or {}
-    context_sources = context.get("sources") if isinstance(context, dict) else None
-    if not isinstance(context_sources, list) or not context_sources:
-        log_event(
-            logger,
-            level=logging.WARNING,
-            event="task.failed",
-            status="failed",
-            message="No context sources for cluster; using fallback rows",
-            component="orchestrator",
-            result_summary={"claim_count": len(cluster)},
-        )
-        return _build_no_verdict_table_for_cluster(
-            cluster,
-            "No sufficient web sources were found to verify this claim cluster.",
-        )
+    context_ref = web_scraper_result.get("context_ref")
 
     rag_storage_result, rag_storage_error = await _run_rpc_step(
         step=RAG_STORAGE,
         priority=8,
-        payload={"sources": context_sources},
+        payload={"context_ref": context_ref},
         context=workflow_context,
     )
     if rag_storage_error:
         raise RuntimeError(rag_storage_error)
+    rag_reference = rag_storage_result.get("rag_reference")
+    if not isinstance(rag_reference, dict):
+        return _build_no_verdict_table_for_cluster(
+            cluster,
+            "No sufficient web sources were found to verify this claim cluster.",
+        )
+    if int(rag_reference.get("source_count") or 0) <= 0 or int(rag_reference.get("chunk_count") or 0) <= 0:
+        return _build_no_verdict_table_for_cluster(
+            cluster,
+            "No sufficient web sources were found to verify this claim cluster.",
+        )
 
     claim_verifier_result, claim_verifier_error = await _run_rpc_step(
         step=CLAIM_VERIFIER,
         priority=9,
         payload={
             "claims": cluster,
-            "rag_reference": rag_storage_result.get("rag_reference"),
+            "rag_reference": rag_reference,
         },
         context=workflow_context,
     )
     if claim_verifier_error:
         raise RuntimeError(claim_verifier_error)
-    return claim_verifier_result.get("table") or {"rows": []}
+    table_ref = claim_verifier_result.get("table_ref")
+    if not isinstance(table_ref, dict):
+        raise RuntimeError("CLAIM_VERIFIER returned invalid table_ref")
+    table_key = table_ref.get("key")
+    if not isinstance(table_key, str) or not table_key.strip():
+        raise RuntimeError("CLAIM_VERIFIER returned empty table_ref key")
+    table = await s3_client.get_json(key=table_key.strip())
+    if not isinstance(table, dict):
+        raise RuntimeError("CLAIM_VERIFIER table payload is invalid")
+    return table
 
 
 def _merge_cluster_tables(cluster_tables: list[dict]) -> dict:
@@ -520,9 +527,9 @@ async def handle_workflow_message(msg: dict) -> None:
             step=TRANSCRIPTION_CORRECT,
             priority=3,
             payload={
-                "transcripts": [
-                    openai_transcribe_result.get("transcript_text"),
-                    assemblyai_transcribe_result.get("transcript_text"),
+                "transcript_refs": [
+                    openai_transcribe_result.get("transcript_ref"),
+                    assemblyai_transcribe_result.get("transcript_ref"),
                 ],
             },
             context=workflow_context,
@@ -536,7 +543,7 @@ async def handle_workflow_message(msg: dict) -> None:
             step=TRANSLATE,
             priority=4,
             payload={
-                "transcript_text": correction_result.get("corrected_transcript"),
+                "corrected_transcript_ref": correction_result.get("corrected_transcript_ref"),
             },
             context=workflow_context,
         )
@@ -549,7 +556,7 @@ async def handle_workflow_message(msg: dict) -> None:
             step=EXTRACT_CLAIM_CLUSTERS,
             priority=5,
             payload={
-                "content": translate_result.get("translated_text"),
+                "translated_text_ref": translate_result.get("translated_text_ref"),
             },
             context=workflow_context,
         )
@@ -567,6 +574,24 @@ async def handle_workflow_message(msg: dict) -> None:
             )
             return
         merged_table = await _run_cluster_fanout_and_merge(workflow_id, clusters, workflow_context)
+        merged_table_ref = await s3_client.put_json(
+            key=s3_client.build_artifact_key(
+                workflow_id=workflow_context.get("workflow_id"),
+                step=SAVE_RESULT_TO_DB,
+                task_id=workflow_context.get("workflow_id"),
+                artifact_name="merged_result_table",
+                extension="json",
+            ),
+            payload=merged_table,
+            metadata={
+                "workflow_id": str(workflow_context.get("workflow_id") or ""),
+                "step": SAVE_RESULT_TO_DB,
+            },
+            tags={
+                "workflow_id": str(workflow_context.get("workflow_id") or ""),
+                "step": SAVE_RESULT_TO_DB,
+            },
+        )
 
         current_step = SAVE_RESULT_TO_DB
         _, save_error = await _run_rpc_step(
@@ -574,7 +599,7 @@ async def handle_workflow_message(msg: dict) -> None:
             priority=10,
             payload={
                 "hunt_id": hunt_id,
-                "table": merged_table,
+                "table_ref": merged_table_ref,
             },
             context=workflow_context,
         )
@@ -632,6 +657,22 @@ async def handle_workflow_message(msg: dict) -> None:
 
 async def main() -> None:
     setup_logging()
+    if settings.s3.enabled:
+        try:
+            await s3_client.ping()
+        except Exception as e:
+            log_event(
+                logger,
+                level=logging.ERROR,
+                event="app.lifecycle.failed",
+                status="failed",
+                message="S3 initialization failed in orchestrator",
+                component="orchestrator",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                exc_info=True,
+            )
+            raise
     log_event(
         logger,
         level=logging.INFO,

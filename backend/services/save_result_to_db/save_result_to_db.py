@@ -204,7 +204,7 @@ async def save_result_to_db(hunt_id: int, table: Dict[str, Any]) -> Dict[str, An
         )
         return {
             "hunt_id": hunt_id,
-            "result": row_dicts,
+            "row_count": len(row_dicts),
             "title": updated_hunt.title,
             "summary": updated_hunt.summary,
             "trust_score": updated_hunt.trust_score,
