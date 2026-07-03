@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List
 
 import requests
+from requests.adapters import HTTPAdapter
 from pydantic import BaseModel
 
 from config import settings
@@ -16,6 +17,49 @@ QUERY_PREVIEW_MAX_CHARS = 160
 URL_PREVIEW_MAX_CHARS = 220
 RESULTS_PREVIEW_QUERY_LIMIT = 3
 RESULTS_PREVIEW_URLS_PER_QUERY = 3
+
+# --- Browser-like client setup for SearXNG (anti-bot) ---
+# Use ONE stable realistic desktop UA. Do not rotate frequently.
+SEARXNG_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36"
+)
+
+SEARXNG_HEADERS = {
+    "User-Agent": SEARXNG_BROWSER_UA,
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
+
+_searxng_session: requests.Session | None = None
+
+
+def _get_searxng_session() -> requests.Session:
+    """Return a persistent Session with keep-alive and proper browser headers."""
+    global _searxng_session
+    if _searxng_session is not None:
+        return _searxng_session
+
+    session = requests.Session()
+    session.headers.update(SEARXNG_HEADERS)
+
+    # Connection reuse
+    adapter = HTTPAdapter(
+        pool_connections=20,
+        pool_maxsize=20,
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
+    _searxng_session = session
+    return _searxng_session
 
 
 def _query_fingerprint(query: str) -> str:
@@ -201,10 +245,18 @@ def _search_web_via_searxng(
         query_fingerprint=query_fp,
         query=query_preview,
     )
+    session = _get_searxng_session()
+
+    params = {
+        "q": query,
+        "format": "json",
+        "engines": "duckduckgo",
+    }
+
     try:
-        response = requests.get(
+        response = session.get(
             settings.searxng.url,
-            params={"q": query, "format": "json"},
+            params=params,
             timeout=settings.searxng.timeout,
         )
     except requests.RequestException as e:
