@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import secrets
 import time
 import uuid
 from dataclasses import dataclass
@@ -24,6 +25,25 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
+
+
+def _load_auth_token_from_env() -> str:
+    token = settings.searxng_manager.auth_token.strip()
+    if not token:
+        raise ValueError("SEARXNG_MANAGER_AUTH_TOKEN is required")
+    return token
+
+
+def _extract_bearer_token(authorization_header: str | None) -> str | None:
+    if not authorization_header:
+        return None
+    scheme, _, token = authorization_header.partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    value = token.strip()
+    if not value:
+        return None
+    return value
 
 
 @dataclass(slots=True)
@@ -328,6 +348,8 @@ class SearxngManager:
                 continue
             if lower_name == "host":
                 continue
+            if lower_name == "authorization":
+                continue
             headers[name] = value
         return headers
 
@@ -393,6 +415,7 @@ def _load_health_check_timeout_from_env() -> float:
 
 
 app = FastAPI(title="SearXNG Manager", debug=False)
+auth_token = _load_auth_token_from_env()
 
 manager = SearxngManager(
     backends=_load_backends_from_env(),
@@ -400,6 +423,40 @@ manager = SearxngManager(
     health_check_interval_seconds=_load_health_check_interval_from_env(),
     health_check_timeout_seconds=_load_health_check_timeout_from_env(),
 )
+
+
+@app.middleware("http")
+async def verify_manager_auth(request: Request, call_next):
+    request_token = _extract_bearer_token(request.headers.get("Authorization"))
+    if request_token is not None and secrets.compare_digest(request_token, auth_token):
+        return await call_next(request)
+
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    set_request_id(request_id)
+    try:
+        log_event(
+            logger,
+            level=logging.WARNING,
+            event="http.request.failed",
+            status="unauthorized",
+            message="Unauthorized request to SearXNG manager",
+            component="services.searxng_manager",
+            method=request.method,
+            path=request.url.path,
+            client_ip=request.client.host if request.client else None,
+            status_code=401,
+        )
+    finally:
+        clear_request_id()
+
+    return JSONResponse(
+        status_code=401,
+        content={"detail": "Unauthorized"},
+        headers={
+            "WWW-Authenticate": "Bearer",
+            "X-Request-ID": request_id,
+        },
+    )
 
 
 @app.on_event("startup")

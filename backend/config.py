@@ -79,6 +79,7 @@ class SearXNGManagerSettings(SectionSettings):
     timeout_seconds: float = 120
     health_check_interval_seconds: float = 5
     health_check_timeout_seconds: float = 2
+    auth_token: str = ""
 
 
 class ChromaDBSettings(SectionSettings):
