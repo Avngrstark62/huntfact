@@ -18,8 +18,8 @@ class Database:
     def __init__(self):
         self.engine = create_engine(
             settings.database.url,
-            pool_size=10,
-            max_overflow=20,
+            pool_size=15,
+            max_overflow=0,
             pool_pre_ping=True,  # important
         )
 
