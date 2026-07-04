@@ -37,6 +37,9 @@ SEARXNG_HEADERS = {
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "same-origin",
 }
+_searxng_manager_auth_token = settings.searxng_manager.auth_token.strip()
+if _searxng_manager_auth_token:
+    SEARXNG_HEADERS["Authorization"] = f"Bearer {_searxng_manager_auth_token}"
 
 _searxng_session: requests.Session | None = None
 
