@@ -69,6 +69,18 @@ class SearXNGSettings(SectionSettings):
     timeout: int = 10
 
 
+class SearXNGManagerSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="SEARXNG_MANAGER_",
+    )
+    backends: str = ""
+    timeout_seconds: float = 120
+    health_check_interval_seconds: float = 5
+    health_check_timeout_seconds: float = 2
+
+
 class ChromaDBSettings(SectionSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -190,6 +202,7 @@ class Settings(BaseSettings):
     assemblyai: AssemblyAISettings = Field(default_factory=AssemblyAISettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     searxng: SearXNGSettings = Field(default_factory=SearXNGSettings)
+    searxng_manager: SearXNGManagerSettings = Field(default_factory=SearXNGManagerSettings)
     chromadb: ChromaDBSettings = Field(default_factory=ChromaDBSettings)
     firebase: FirebaseSettings = Field(default_factory=FirebaseSettings)
     firecrawl: FirecrawlSettings = Field(default_factory=FirecrawlSettings)
