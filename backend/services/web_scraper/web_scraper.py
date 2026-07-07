@@ -1,12 +1,13 @@
 from typing import Any, Dict, List
 import logging
 
+import trafilatura
 from pydantic import BaseModel
 
 from config import settings
 from llm import llm
 from logging_config import get_logger, log_event, sanitize_url
-from services.firecrawl.firecrawl import fetch_markdown_with_firecrawl
+from services.brightdata.brightdata import fetch_html_with_brightdata
 
 logger = get_logger("services.web_scraper.web_scraper")
 
@@ -197,6 +198,45 @@ def _build_context(scraped_sources: List[Dict[str, str]]) -> Dict[str, Any]:
     return {"sources": sources}
 
 
+def _extract_markdown_from_html(html: str, url: str, hunt_id: int | None = None) -> str:
+    try:
+        markdown = trafilatura.extract(html, output_format="markdown")
+    except Exception as e:
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Trafilatura extraction failed",
+            component="services.web_scraper",
+            provider="trafilatura",
+            operation="extract_markdown",
+            hunt_id=hunt_id,
+            url=sanitize_url(url),
+            error_type=type(e).__name__,
+            error_message=str(e),
+            exc_info=True,
+        )
+        raise RuntimeError(f"Trafilatura extraction failed for URL '{url}'") from e
+
+    if not isinstance(markdown, str) or not markdown.strip():
+        log_event(
+            logger,
+            level=logging.ERROR,
+            event="provider.request.failed",
+            status="failed",
+            message="Trafilatura returned empty markdown",
+            component="services.web_scraper",
+            provider="trafilatura",
+            operation="extract_markdown",
+            hunt_id=hunt_id,
+            url=sanitize_url(url),
+        )
+        raise RuntimeError(f"Trafilatura returned empty markdown for URL '{url}'")
+
+    return markdown
+
+
 async def build_web_verification_context(
     claims: List[str],
     url_fetcher_results: List[Dict[str, Any]],
@@ -271,7 +311,8 @@ async def build_web_verification_context(
     for candidate in selected_candidates:
         url = candidate["url"]
         try:
-            markdown = fetch_markdown_with_firecrawl(url, hunt_id=hunt_id)
+            html = fetch_html_with_brightdata(url, hunt_id=hunt_id)
+            markdown = _extract_markdown_from_html(html, url, hunt_id=hunt_id)
         except Exception as e:
             failed_scrape_count += 1
             log_event(
@@ -281,12 +322,13 @@ async def build_web_verification_context(
                 status="failed",
                 message="Failed to scrape selected URL",
                 component="services.web_scraper",
-                provider="firecrawl",
+                provider="brightdata",
                 operation="scrape",
                 hunt_id=hunt_id,
                 url=sanitize_url(url),
                 error_type=type(e).__name__,
                 error_message=str(e),
+                exc_info=True,
             )
             continue
 

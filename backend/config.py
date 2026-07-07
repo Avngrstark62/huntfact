@@ -107,6 +107,19 @@ class FirecrawlSettings(SectionSettings):
     api_key: str = ""
 
 
+class BrightDataSettings(SectionSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="allow",
+        env_prefix="BRIGHTDATA_",
+    )
+    api_url: str = "https://api.brightdata.com/request"
+    api_key: str = ""
+    zone: str = ""
+    response_format: str = "raw"
+    timeout_seconds: int = 30
+
+
 class WorkflowAdmissionSettings(SectionSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -207,6 +220,7 @@ class Settings(BaseSettings):
     chromadb: ChromaDBSettings = Field(default_factory=ChromaDBSettings)
     firebase: FirebaseSettings = Field(default_factory=FirebaseSettings)
     firecrawl: FirecrawlSettings = Field(default_factory=FirecrawlSettings)
+    brightdata: BrightDataSettings = Field(default_factory=BrightDataSettings)
     workflow_admission: WorkflowAdmissionSettings = Field(default_factory=WorkflowAdmissionSettings)
     workflow_cleanup: WorkflowCleanupSettings = Field(default_factory=WorkflowCleanupSettings)
     s3: S3Settings = Field(default_factory=S3Settings)
